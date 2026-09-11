@@ -14,9 +14,16 @@ load_dotenv(ROOT / ".env")
 
 # Postgres direto (porta 5432/6543) — nesta rede da SEDUC costuma travar.
 # O sistema usa a API HTTPS (SUPABASE_URL + chave).
-DATABASE_URL = (
-    os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL") or ""
-).strip().strip('"').strip("'")
+def _limpar_url(valor: str) -> str:
+    texto = (valor or "").strip().strip('"').strip("'")
+    if "=" in texto:
+        chave, resto = texto.split("=", 1)
+        if chave.strip().upper() in {"DATABASE_URL", "DIRECT_URL", "SUPABASE_DB_URL"}:
+            texto = resto.strip().strip('"').strip("'")
+    return texto
+
+
+DATABASE_URL = _limpar_url(os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL") or "")
 # Na SEDUC o Postgres costuma travar. No Render (RENDER=true) usa o banco da nuvem.
 USAR_POSTGRES = os.getenv("SUPABASE_USE_POSTGRES", "").strip() in {"1", "true", "sim"} or (
     bool(DATABASE_URL) and bool(os.getenv("RENDER"))

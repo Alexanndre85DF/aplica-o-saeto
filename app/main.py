@@ -141,14 +141,17 @@ class FinalizarBody(BaseModel):
 
 @app.on_event("startup")
 def startup():
-    init_db()
-    with get_db() as conn:
-        n = conn.execute("SELECT COUNT(*) n FROM vagas").fetchone()["n"]
-        so_manual = origem_manual(conn)
-    if n == 0 and not so_manual:
-        planilha = localizar_planilha()
-        if planilha:
-            importar_planilha(planilha)
+    try:
+        init_db()
+        with get_db() as conn:
+            n = conn.execute("SELECT COUNT(*) n FROM vagas").fetchone()["n"]
+            so_manual = origem_manual(conn)
+        if n == 0 and not so_manual:
+            planilha = localizar_planilha()
+            if planilha:
+                importar_planilha(planilha)
+    except Exception as exc:
+        print("FALHA AO INICIAR BANCO:", exc)
 
 
 def _cadastro_erro(exc: Exception):

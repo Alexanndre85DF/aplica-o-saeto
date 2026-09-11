@@ -342,18 +342,23 @@ def _url_postgres(url: str) -> str:
 def connect():
     if USAR_POSTGRES and DATABASE_URL:
         import psycopg
+        from urllib.parse import urlparse
 
+        url = _url_postgres(DATABASE_URL)
+        parsed = urlparse(url)
+        print("Postgres host:", parsed.hostname, "porta:", parsed.port)
         try:
             inner = psycopg.connect(
-                _url_postgres(DATABASE_URL),
+                url,
                 autocommit=False,
                 prepare_threshold=None,
-                connect_timeout=15,
+                connect_timeout=30,
             )
         except Exception as exc:
+            msg = str(exc).replace(parsed.password or "", "***") if parsed.password else str(exc)
             raise RuntimeError(
                 "Não foi possível conectar ao Supabase. "
-                "Confira SUPABASE_DB_URL no arquivo .env."
+                f"Host {parsed.hostname} porta {parsed.port}. {msg}"
             ) from exc
         return PgConnection(inner)
     conn = sqlite3.connect(DB_PATH)
