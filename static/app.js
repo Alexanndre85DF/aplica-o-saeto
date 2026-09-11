@@ -698,7 +698,6 @@ async function abrirPainelAlocar() {
   const ja = state.aplicadoresSel && state.aplicadoresSel.length
     ? new Set(state.aplicadoresSel.map(Number))
     : null;
-  const mun = munNomeAtual();
   const itens = lista
     .map((a) => {
       const id = Number(a.id);
