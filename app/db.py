@@ -345,6 +345,8 @@ def _trocar_placeholders(sql: str) -> str:
         ch = sql[i]
         if ch == "?":
             out.append("%s")
+        elif ch == "%":
+            out.append("%%")
         else:
             out.append(ch)
         i += 1
