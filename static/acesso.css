@@ -28,21 +28,25 @@
 html, body { margin: 0; height: 100%; }
 body {
   min-height: 100vh;
+  height: 100%;
   font-family: var(--font);
   font-size: 13px;
   background: var(--paper);
   color: var(--ink);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .portal {
   flex: 1;
+  min-height: 0;
   max-width: 640px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 12px 16px;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
+  overflow: auto;
 }
 .win {
   width: 100%;
@@ -50,6 +54,8 @@ body {
   box-shadow: var(--raised);
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
 }
 .win-title {
   display: flex;
@@ -90,7 +96,12 @@ body {
   background: var(--face);
   box-shadow: var(--raised);
 }
-.win-body { padding: 14px; }
+.win-body {
+  padding: 14px;
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
 .portal-brand span {
   display: block;
   font-size: 11px;
@@ -169,6 +180,11 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .erro { color: var(--choque); font-weight: 700; }
 .hidden { display: none !important; }
 .vazio { margin-top: 18px; color: var(--soft); }
+.resumo-lista {
+  margin: 12px 0 0;
+  font-weight: 700;
+  font-size: 12px;
+}
 button.win-ctrl { border: 0; cursor: pointer; padding: 0; width: 16px; }
 .dlg-overlay {
   position: fixed;

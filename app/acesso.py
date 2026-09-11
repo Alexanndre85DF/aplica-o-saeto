@@ -97,7 +97,8 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
            JOIN municipios m ON m.id = e.municipio_id
            LEFT JOIN viagens vi ON vi.municipio_id = m.id
            WHERE v.aplicador_id = ?
-           ORDER BY v.data, v.turno, e.nome, v.serie""",
+           ORDER BY CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END,
+                    v.data, v.turno, e.nome, v.serie""",
         (aplicador_id,),
     ).fetchall()
     lista = []

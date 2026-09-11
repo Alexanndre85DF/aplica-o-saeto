@@ -129,7 +129,10 @@ async function carregarPainel() {
     box.innerHTML = "<p class='vazio'>Nenhuma aplicação atribuída a você ainda.</p>";
     return;
   }
-  box.innerHTML = dados.aplicacoes
+  const nPend = dados.aplicacoes.filter((a) => !a.finalizada).length;
+  const nFim = dados.aplicacoes.length - nPend;
+  box.innerHTML = `<p class="resumo-lista">${dados.aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
+    dados.aplicacoes
     .map((a) => {
       const viagem = a.saida_fmt && a.saida_fmt !== "—"
         ? `Saída ${a.saida_fmt} · retorno ${a.retorno_fmt}`
@@ -137,8 +140,10 @@ async function carregarPainel() {
       const total = a.n_alunos != null && a.n_alunos !== ""
         ? `Total de estudantes: ${a.n_alunos}`
         : "Total de estudantes: não informado";
-      const presentes = a.finalizada && a.n_presentes != null
-        ? `Presentes: ${a.n_presentes}${a.n_alunos != null ? " de " + a.n_alunos : ""}`
+      const presentes = a.finalizada
+        ? (a.n_presentes != null
+          ? `Presentes: ${a.n_presentes}${a.n_alunos != null ? " de " + a.n_alunos : ""}`
+          : "Presentes: ainda não informado")
         : "";
       return `<article class="app ${a.finalizada ? "feita" : ""}">
         <span class="chip ${a.finalizada ? "ok" : ""}">${a.finalizada ? "Finalizada" : "Prevista"}</span>
