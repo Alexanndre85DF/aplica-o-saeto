@@ -24,6 +24,7 @@ TABELAS = [
         "finalizado_em",
         "turma",
         "n_alunos",
+        "n_presentes",
         "alocacao",
         "prova_recebida_em",
     ]),

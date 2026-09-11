@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS vagas (
     finalizado_em TEXT,
     turma TEXT,
     n_alunos INTEGER,
+    n_presentes INTEGER,
     alocacao TEXT,
     prova_recebida_em TEXT
 );
@@ -412,6 +413,7 @@ def _permitir_vaga_sem_data(conn) -> None:
         "finalizado_em",
         "turma",
         "n_alunos",
+        "n_presentes",
         "alocacao",
         "prova_recebida_em",
     ]
@@ -431,6 +433,7 @@ def _permitir_vaga_sem_data(conn) -> None:
             finalizado_em TEXT,
             turma TEXT,
             n_alunos INTEGER,
+            n_presentes INTEGER,
             alocacao TEXT,
             prova_recebida_em TEXT
         )"""
@@ -467,6 +470,7 @@ def _ensure_colunas_postgres(conn) -> None:
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS finalizado_em TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS turma TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS n_alunos INTEGER",
+        "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS n_presentes INTEGER",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS alocacao TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS prova_recebida_em TEXT",
         "ALTER TABLE viagens ADD COLUMN IF NOT EXISTS dias_aplicacao TEXT",
@@ -524,6 +528,8 @@ def ensure_colunas(conn) -> None:
         conn.execute("ALTER TABLE vagas ADD COLUMN turma TEXT")
     if "n_alunos" not in vcols:
         conn.execute("ALTER TABLE vagas ADD COLUMN n_alunos INTEGER")
+    if "n_presentes" not in vcols:
+        conn.execute("ALTER TABLE vagas ADD COLUMN n_presentes INTEGER")
     if not USAR_POSTGRES:
         _permitir_vaga_sem_data(conn)
     vcols = {row[1] for row in conn.execute("PRAGMA table_info(vagas)")}
@@ -701,6 +707,7 @@ def _migrar_sqlite_se_postgres_vazio() -> None:
                         "finalizado_em",
                         "turma",
                         "n_alunos",
+                        "n_presentes",
                         "alocacao",
                         "prova_recebida_em",
                     ],

@@ -361,6 +361,8 @@ function cardCampo(item, feita) {
     <div class="meta">
       ${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno}<br />
       ${item.serie}${item.ordem > 1 ? " · " + item.ordem : ""} · ${quem}${hora}
+      ${item.n_alunos ? `<br />Total: ${item.n_alunos} estudantes` : ""}
+      ${feita && item.n_presentes != null ? ` · presentes: ${item.n_presentes}` : ""}
     </div>
     <button class="btn sm ${feita ? "ghost" : "gold"}" data-baixa="${item.id}" data-feita="${feita ? "1" : "0"}">
       ${feita ? "Reabrir" : "Dar baixa"}

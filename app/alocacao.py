@@ -633,19 +633,40 @@ def organizar(
     }
 
 
-def finalizar_vaga(conn, vaga_id: int, finalizada: bool) -> dict:
-    vaga = conn.execute("SELECT id FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
+def finalizar_vaga(conn, vaga_id: int, finalizada: bool, n_presentes: int | None = None) -> dict:
+    vaga = conn.execute(
+        "SELECT id, n_alunos FROM vagas WHERE id = ?", (vaga_id,)
+    ).fetchone()
     if not vaga:
         return {"ok": False, "erro": "Vaga não encontrada."}
     if finalizada:
+        presentes = None
+        if n_presentes is not None:
+            try:
+                presentes = int(n_presentes)
+            except (TypeError, ValueError):
+                return {"ok": False, "erro": "Informe um número válido de estudantes presentes."}
+            if presentes < 0:
+                return {"ok": False, "erro": "O número de presentes não pode ser negativo."}
+            total = vaga["n_alunos"]
+            if total is not None and presentes > int(total):
+                return {
+                    "ok": False,
+                    "erro": f"Presentes ({presentes}) não pode ser maior que o total de {int(total)} estudantes.",
+                }
         agora = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "UPDATE vagas SET status = 'FINALIZADA', finalizado_em = ? WHERE id = ?",
-            (agora, vaga_id),
+            "UPDATE vagas SET status = 'FINALIZADA', finalizado_em = ?, n_presentes = ? WHERE id = ?",
+            (agora, presentes, vaga_id),
         )
-        return {"ok": True, "status": "FINALIZADA", "finalizado_em": agora}
+        return {
+            "ok": True,
+            "status": "FINALIZADA",
+            "finalizado_em": agora,
+            "n_presentes": presentes,
+        }
     conn.execute(
-        "UPDATE vagas SET status = 'PREVISTA', finalizado_em = NULL WHERE id = ?",
+        "UPDATE vagas SET status = 'PREVISTA', finalizado_em = NULL, n_presentes = NULL WHERE id = ?",
         (vaga_id,),
     )
     return {"ok": True, "status": "PREVISTA"}

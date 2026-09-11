@@ -150,6 +150,7 @@ class AdminEntrarBody(BaseModel):
 
 class FinalizarBody(BaseModel):
     finalizada: bool = True
+    n_presentes: int | None = None
 
 
 class ReceberProvaBody(BaseModel):
@@ -304,7 +305,12 @@ def api_acesso_finalizar(
         vaga = conn.execute("SELECT * FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
         if not vaga or vaga["aplicador_id"] != pessoa["id"]:
             raise HTTPException(404, "Aplicação não encontrada.")
-        return finalizar_vaga(conn, vaga_id, body.finalizada)
+        if body.finalizada and body.n_presentes is None:
+            raise HTTPException(400, "Informe quantos estudantes estavam presentes.")
+        resultado = finalizar_vaga(conn, vaga_id, body.finalizada, body.n_presentes)
+        if not resultado.get("ok"):
+            raise HTTPException(400, resultado.get("erro") or "Não foi possível concluir.")
+        return resultado
 
 
 @app.post("/api/acesso/sair")
@@ -392,6 +398,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
         where = f"WHERE {' AND '.join(filtro)}" if filtro else ""
         rows = conn.execute(
             f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.finalizado_em,
+                      v.turma, v.n_alunos, v.n_presentes,
                       e.nome AS escola, e.rede, e.codigo AS escola_codigo,
                       m.id AS municipio_id, m.nome AS municipio,
                       a.id AS aplicador_id, a.nome AS aplicador_nome, a.codigo AS aplicador_codigo
@@ -881,7 +888,7 @@ def api_alocar(vaga_id: int, body: AlocarBody):
 @app.post("/api/vagas/{vaga_id}/finalizar")
 def api_finalizar(vaga_id: int, body: FinalizarBody):
     with get_db() as conn:
-        resultado = finalizar_vaga(conn, vaga_id, body.finalizada)
+        resultado = finalizar_vaga(conn, vaga_id, body.finalizada, body.n_presentes)
         if not resultado.get("ok"):
             raise HTTPException(404, resultado.get("erro"))
         return resultado

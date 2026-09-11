@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Meu acesso · SAETO SRE Gurupi</title>
-  <link rel="stylesheet" href="/static/acesso.css?v=win98-4" />
+  <link rel="stylesheet" href="/static/acesso.css?v=win98-7" />
 </head>
 <body>
   <main class="portal">
@@ -59,6 +59,27 @@
     <span class="assinatura">Criado por Alexandre Tolentino © 2026</span>
     <span class="tray"><span id="relogio">00:00</span></span>
   </footer>
-  <script src="/static/acesso.js?v=win98-4"></script>
+
+  <div id="dlg-presentes" class="dlg-overlay hidden">
+    <section class="win login-win">
+      <div class="win-title">
+        <span class="win-icon" aria-hidden="true"></span>
+        <span>Confirmar aplicação</span>
+        <button type="button" class="win-ctrl close" id="dlg-presentes-x" aria-label="Fechar">×</button>
+      </div>
+      <form id="form-presentes" class="login-body">
+        <p id="dlg-presentes-escola"></p>
+        <p>Total de estudantes: <b id="dlg-presentes-total">—</b></p>
+        <label class="campo">Estudantes presentes
+          <input id="dlg-presentes-n" type="number" min="0" step="1" required />
+        </label>
+        <p id="dlg-presentes-erro" class="erro hidden"></p>
+        <button type="submit">Confirmar e salvar</button>
+        <button type="button" class="ghost" id="dlg-presentes-cancelar">Cancelar</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/static/acesso.js?v=win98-7"></script>
 </body>
 </html>

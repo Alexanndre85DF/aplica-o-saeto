@@ -89,7 +89,7 @@ def _publico(pessoa) -> dict:
 def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
     rows = conn.execute(
         """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
-                  v.prova_recebida_em,
+                  v.n_presentes, v.prova_recebida_em,
                   e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                   m.nome AS municipio, vi.data_saida, vi.data_retorno
            FROM vagas v

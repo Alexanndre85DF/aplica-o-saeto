@@ -169,6 +169,38 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .erro { color: var(--choque); font-weight: 700; }
 .hidden { display: none !important; }
 .vazio { margin-top: 18px; color: var(--soft); }
+button.win-ctrl { border: 0; cursor: pointer; padding: 0; width: 16px; }
+.dlg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 128, 128, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.login-win {
+  width: min(400px, 100%);
+  background: var(--face);
+  box-shadow: var(--raised);
+}
+.login-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.login-body p { margin: 0; }
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 700;
+}
+.campo input {
+  width: 100%;
+}
 
 .taskbar {
   height: var(--taskbar);

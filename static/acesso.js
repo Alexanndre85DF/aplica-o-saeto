@@ -64,6 +64,59 @@ function tit(s) {
     .join(" ");
 }
 
+let vagaPresentes = null;
+
+function fecharDlgPresentes() {
+  vagaPresentes = null;
+  document.getElementById("dlg-presentes").classList.add("hidden");
+}
+
+function abrirDlgPresentes(a) {
+  vagaPresentes = a;
+  document.getElementById("dlg-presentes-escola").textContent =
+    `${tit(a.escola)} · ${a.serie}${a.turma ? " — " + a.turma : ""}`;
+  document.getElementById("dlg-presentes-total").textContent =
+    a.n_alunos != null && a.n_alunos !== "" ? String(a.n_alunos) : "não informado";
+  const inp = document.getElementById("dlg-presentes-n");
+  inp.value = a.n_alunos != null && a.n_alunos !== "" ? String(a.n_alunos) : "";
+  inp.max = a.n_alunos != null && a.n_alunos !== "" ? String(a.n_alunos) : "";
+  document.getElementById("dlg-presentes-erro").classList.add("hidden");
+  document.getElementById("dlg-presentes").classList.remove("hidden");
+  inp.focus();
+  inp.select();
+}
+
+document.getElementById("dlg-presentes-cancelar").addEventListener("click", fecharDlgPresentes);
+document.getElementById("dlg-presentes-x").addEventListener("click", fecharDlgPresentes);
+document.getElementById("form-presentes").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!vagaPresentes) return;
+  const erro = document.getElementById("dlg-presentes-erro");
+  const n = Number(document.getElementById("dlg-presentes-n").value);
+  if (!Number.isInteger(n) || n < 0) {
+    erro.textContent = "Informe um número inteiro de presentes.";
+    erro.classList.remove("hidden");
+    return;
+  }
+  const total = vagaPresentes.n_alunos;
+  if (total != null && total !== "" && n > Number(total)) {
+    erro.textContent = `Presentes não pode ser maior que o total (${total}).`;
+    erro.classList.remove("hidden");
+    return;
+  }
+  try {
+    await req(`/api/acesso/vagas/${vagaPresentes.id}/finalizar`, {
+      method: "POST",
+      body: JSON.stringify({ finalizada: true, n_presentes: n }),
+    });
+    fecharDlgPresentes();
+    await carregarPainel();
+  } catch (e) {
+    erro.textContent = e.message;
+    erro.classList.remove("hidden");
+  }
+});
+
 async function carregarPainel() {
   const dados = await req("/api/acesso/eu");
   login.classList.add("hidden");
@@ -81,15 +134,23 @@ async function carregarPainel() {
       const viagem = a.saida_fmt && a.saida_fmt !== "—"
         ? `Saída ${a.saida_fmt} · retorno ${a.retorno_fmt}`
         : "";
+      const total = a.n_alunos != null && a.n_alunos !== ""
+        ? `Total de estudantes: ${a.n_alunos}`
+        : "Total de estudantes: não informado";
+      const presentes = a.finalizada && a.n_presentes != null
+        ? `Presentes: ${a.n_presentes}${a.n_alunos != null ? " de " + a.n_alunos : ""}`
+        : "";
       return `<article class="app ${a.finalizada ? "feita" : ""}">
         <span class="chip ${a.finalizada ? "ok" : ""}">${a.finalizada ? "Finalizada" : "Prevista"}</span>
         <span class="chip ${a.prova_recebida ? "ok" : ""}">${a.prova_recebida ? "Prova: recebida" : "Prova: pendente"}</span>
         <b>${tit(a.escola)}</b>
         <div class="meta">
           ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
-          <b>${a.serie}${a.turma ? " — " + a.turma : ""}${a.n_alunos ? " · " + a.n_alunos + " alunos" : ""}</b>
+          <b>${a.serie}${a.turma ? " — " + a.turma : ""}</b>
           ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
           ${viagem ? "<br />" + viagem : ""}
+          <br /><b>${total}</b>
+          ${presentes ? "<br /><b>" + presentes + "</b>" : ""}
           ${!a.prova_recebida && !a.finalizada ? "<br />Aguarde a SRE marcar o recebimento da prova." : ""}
         </div>
         <button type="button" data-id="${a.id}" data-feita="${a.finalizada ? "1" : "0"}" ${!a.prova_recebida && !a.finalizada ? "disabled" : ""}>
@@ -101,11 +162,17 @@ async function carregarPainel() {
   box.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";
-      await req(`/api/acesso/vagas/${btn.dataset.id}/finalizar`, {
-        method: "POST",
-        body: JSON.stringify({ finalizada: !feita }),
-      });
-      await carregarPainel();
+      if (feita) {
+        if (!confirm("Reabrir esta aplicação? Os presentes informados serão apagados.")) return;
+        await req(`/api/acesso/vagas/${btn.dataset.id}/finalizar`, {
+          method: "POST",
+          body: JSON.stringify({ finalizada: false }),
+        });
+        await carregarPainel();
+        return;
+      }
+      const app = dados.aplicacoes.find((x) => String(x.id) === String(btn.dataset.id));
+      if (app) abrirDlgPresentes(app);
     });
   });
 }
