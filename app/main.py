@@ -176,7 +176,13 @@ def _cadastro_erro(exc: Exception):
         raise HTTPException(404, str(exc)) from exc
     if isinstance(exc, ValueError):
         raise HTTPException(400, str(exc)) from exc
-    raise exc
+    texto = str(exc).lower()
+    if "unique" in texto or "duplicate" in texto or "integrity" in texto:
+        raise HTTPException(
+            400,
+            "Não deu para gravar: esse registro já existe no banco.",
+        ) from exc
+    raise HTTPException(400, str(exc) or "Não foi possível concluir.") from exc
 
 
 def _cookie_https(request: Request) -> bool:

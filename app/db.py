@@ -477,6 +477,17 @@ def _ensure_colunas_postgres(conn) -> None:
             conn.execute(sql)
         except Exception:
             pass
+    sincronizar_sequencias(conn)
+
+
+def sincronizar_sequencias(conn) -> None:
+    if not (USAR_POSTGRES and DATABASE_URL):
+        return
+    for tabela in _TABELAS_COM_ID:
+        try:
+            _ajustar_sequencia(conn, tabela)
+        except Exception as exc:
+            print(f"Aviso: sequência {tabela}:", exc)
 
 
 def ensure_colunas(conn) -> None:
@@ -628,7 +639,7 @@ def _ajustar_sequencia(dest, tabela: str) -> None:
     if not max_id:
         return
     dest.execute(
-        "SELECT setval(pg_get_serial_sequence(%s, 'id'), %s, true)",
+        "SELECT setval(pg_get_serial_sequence(?, 'id'), ?, true)",
         (tabela, int(max_id)),
     )
 

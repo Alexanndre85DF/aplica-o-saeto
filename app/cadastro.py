@@ -264,6 +264,9 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
         raise ValueError("Informe quantos aplicadores criar, por exemplo 15.")
     if qtd > 200:
         raise ValueError("No máximo 200 de uma vez.")
+    from .db import sincronizar_sequencias
+
+    sincronizar_sequencias(conn)
     max_n = 0
     for r in conn.execute("SELECT codigo, numero FROM aplicadores"):
         n = r["numero"] if r["numero"] is not None else numero_do_codigo(r["codigo"])
@@ -275,11 +278,31 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
         codigo = codigo_do_numero(n)
         if conn.execute("SELECT id FROM aplicadores WHERE codigo = ?", (codigo,)).fetchone():
             continue
-        conn.execute(
-            """INSERT INTO aplicadores(codigo, nome, numero, ativo)
-               VALUES (?, ?, ?, 1)""",
-            (codigo, codigo, n),
-        )
+        try:
+            conn.execute(
+                """INSERT INTO aplicadores(codigo, nome, numero, ativo)
+                   VALUES (?, ?, ?, 1)""",
+                (codigo, codigo, n),
+            )
+        except Exception as exc:
+            texto = str(exc).lower()
+            if "unique" in texto or "duplicate" in texto:
+                sincronizar_sequencias(conn)
+                if conn.execute("SELECT id FROM aplicadores WHERE codigo = ?", (codigo,)).fetchone():
+                    continue
+                try:
+                    conn.execute(
+                        """INSERT INTO aplicadores(codigo, nome, numero, ativo)
+                           VALUES (?, ?, ?, 1)""",
+                        (codigo, codigo, n),
+                    )
+                except Exception as retry:
+                    raise ValueError(
+                        "Não deu para criar o próximo aplicador no banco. "
+                        "O número de ID pode estar desalinhado no Supabase. Tente de novo."
+                    ) from retry
+            else:
+                raise ValueError("Não deu para criar o aplicador: " + str(exc)) from exc
         criados.append({"numero": n, "codigo": codigo})
     if not criados:
         raise ValueError("Esses números já existem.")

@@ -1030,32 +1030,11 @@ async function carregarAplicadores() {
       return;
     }
     try {
-      let inicio;
-      let fim;
-      let quantidade;
-      try {
-        const r = await api("/api/aplicadores/lote", {
-          method: "POST",
-          body: JSON.stringify({ quantidade: qtd }),
-        });
-        inicio = r.inicio;
-        fim = r.fim;
-        quantidade = r.quantidade;
-      } catch (err) {
-        const atual = await api("/api/aplicadores");
-        const maxN = atual.reduce((m, a) => Math.max(m, Number(a.numero) || 0), 0);
-        inicio = maxN + 1;
-        fim = maxN + qtd;
-        for (let n = inicio; n <= fim; n += 1) {
-          const codigo = `Aplicador ${String(n).padStart(2, "0")}`;
-          await api("/api/aplicadores", {
-            method: "POST",
-            body: JSON.stringify({ nome: codigo, codigo, numero: n }),
-          });
-        }
-        quantidade = qtd;
-      }
-      alert(`Criados Aplicador ${String(inicio).padStart(2, "0")} até Aplicador ${String(fim).padStart(2, "0")} (${quantidade}).`);
+      const r = await api("/api/aplicadores/lote", {
+        method: "POST",
+        body: JSON.stringify({ quantidade: qtd }),
+      });
+      alert(`Criados Aplicador ${String(r.inicio).padStart(2, "0")} até Aplicador ${String(r.fim).padStart(2, "0")} (${r.quantidade}).`);
       carregarAplicadores();
     } catch (err) {
       alert(err.message);
