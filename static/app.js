@@ -18,9 +18,13 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
+  if (res.status === 401 && path !== "/api/admin/entrar") {
+    mostrarTelaLoginAdmin();
+  }
   if (!res.ok) {
     let msg = "Falha na requisição.";
     try {
@@ -108,7 +112,12 @@ $("#arquivo-planilha").addEventListener("change", async (ev) => {
   const fd = new FormData();
   fd.append("arquivo", file);
   try {
-    const res = await fetch("/api/importar/arquivo", { method: "POST", body: fd });
+    const res = await fetch("/api/importar/arquivo", {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+    });
+    if (res.status === 401) mostrarTelaLoginAdmin();
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Falha ao importar.");
     const avisos = (data.avisos || []).length ? `\nAvisos: ${data.avisos.length}` : "";
@@ -1462,4 +1471,59 @@ function tickRelogio() {
 tickRelogio();
 setInterval(tickRelogio, 10000);
 
-mostrarView("resumo");
+function mostrarTelaLoginAdmin() {
+  const tela = $("#tela-admin-login");
+  if (tela) tela.classList.remove("hidden");
+}
+
+function aplicarAdmin(admin) {
+  const nome = $("#nome-logado");
+  if (nome) nome.textContent = admin.nome;
+  const tela = $("#tela-admin-login");
+  if (tela) tela.classList.add("hidden");
+}
+
+const formAdmin = $("#form-admin-login");
+if (formAdmin) {
+  formAdmin.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const erro = $("#erro-admin-login");
+    erro.classList.add("hidden");
+    try {
+      const dados = await api("/api/admin/entrar", {
+        method: "POST",
+        body: JSON.stringify({
+          email: $("#admin-email").value,
+          senha: $("#admin-senha").value,
+        }),
+      });
+      $("#admin-senha").value = "";
+      aplicarAdmin(dados.admin);
+      mostrarView("resumo");
+    } catch (e) {
+      erro.textContent = e.message;
+      erro.classList.remove("hidden");
+    }
+  });
+}
+
+const btnSairAdmin = $("#btn-sair-admin");
+if (btnSairAdmin) {
+  btnSairAdmin.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/sair", { method: "POST", body: "{}" });
+    } catch (_) {}
+    if ($("#nome-logado")) $("#nome-logado").textContent = "";
+    mostrarTelaLoginAdmin();
+  });
+}
+
+(async function bootstrapAdmin() {
+  try {
+    const dados = await api("/api/admin/eu");
+    aplicarAdmin(dados.admin);
+    mostrarView("resumo");
+  } catch (_) {
+    mostrarTelaLoginAdmin();
+  }
+})();

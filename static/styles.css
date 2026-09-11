@@ -248,7 +248,16 @@ main { grid-column: 2; grid-row: 1; }
   gap: 16px;
   margin-bottom: 16px;
 }
-.top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.top-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.sessao-admin {
+  text-align: right;
+  min-width: 180px;
+}
+.sessao-admin strong {
+  display: block;
+  font-size: 13px;
+  margin: 2px 0 6px;
+}
 .topbar h1 {
   font-size: 18px;
   margin: 0 0 4px;
@@ -257,6 +266,35 @@ main { grid-column: 2; grid-row: 1; }
 .topbar p { margin: 0; color: var(--ink-soft); }
 
 .hidden { display: none !important; }
+.erro { color: var(--choque); font-weight: 700; margin: 0 0 10px; }
+
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--desktop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.login-win {
+  width: min(420px, 100%);
+  background: var(--face);
+  box-shadow: var(--raised);
+}
+.login-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.login-body h1 {
+  margin: 0;
+  font-size: 16px;
+}
+.login-body > p { margin: 0 0 6px; color: var(--ink-soft); }
+.login-body .btn { width: 100%; margin-top: 6px; }
 
 .cards {
   display: grid;
@@ -652,8 +690,20 @@ table.grade {
   background: var(--face);
 }
 .task-btn.ativo { background: #fff; }
+.assinatura {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 8px;
+}
 .tray {
-  margin-left: auto;
+  margin-left: 0;
   padding: 2px 10px;
   font-size: 12px;
   font-weight: 700;

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from fastapi import Cookie, FastAPI, File, HTTPException, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Cookie, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -13,6 +14,12 @@ from .acesso import (
     entrar_por_cpf,
     garantir_token_acesso,
     minhas_aplicacoes,
+)
+from .admin_auth import (
+    COOKIE_ADMIN,
+    admin_do_token,
+    autenticar,
+    criar_token,
 )
 from .alocacao import (
     alocar,
@@ -135,6 +142,11 @@ class EntrarBody(BaseModel):
     token_link: str | None = None
 
 
+class AdminEntrarBody(BaseModel):
+    email: str
+    senha: str
+
+
 class FinalizarBody(BaseModel):
     finalizada: bool = True
 
@@ -162,6 +174,29 @@ def _cadastro_erro(exc: Exception):
     raise exc
 
 
+def _cookie_https(request: Request) -> bool:
+    return request.url.scheme == "https" or bool(os.getenv("RENDER"))
+
+
+@app.middleware("http")
+async def proteger_admin(request: Request, call_next):
+    path = request.url.path
+    if (
+        path.startswith("/static")
+        or path.startswith("/acesso")
+        or path.startswith("/api/acesso")
+        or path == "/api/admin/entrar"
+        or path == "/api/admin/sair"
+    ):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        try:
+            admin_do_token(request.cookies.get(COOKIE_ADMIN))
+        except LookupError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=401)
+    return await call_next(request)
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
@@ -174,6 +209,39 @@ def pagina_acesso(token_link: str | None = None):
 
 
 COOKIE_PORTAL = "saeto_portal"
+
+
+@app.post("/api/admin/entrar")
+def api_admin_entrar(body: AdminEntrarBody, request: Request, response: Response):
+    try:
+        admin = autenticar(body.email, body.senha)
+    except LookupError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    response.set_cookie(
+        key=COOKIE_ADMIN,
+        value=criar_token(admin),
+        httponly=True,
+        samesite="lax",
+        secure=_cookie_https(request),
+        max_age=12 * 3600,
+    )
+    return {"admin": admin}
+
+
+@app.get("/api/admin/eu")
+def api_admin_eu(request: Request):
+    try:
+        return {"admin": admin_do_token(request.cookies.get(COOKIE_ADMIN))}
+    except LookupError as exc:
+        raise HTTPException(401, str(exc)) from exc
+
+
+@app.post("/api/admin/sair")
+def api_admin_sair(request: Request, response: Response):
+    response.delete_cookie(
+        COOKIE_ADMIN, samesite="lax", secure=_cookie_https(request)
+    )
+    return {"ok": True}
 
 
 @app.post("/api/acesso/entrar")

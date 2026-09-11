@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SAETO · Aplicação SRE Gurupi</title>
-  <link rel="stylesheet" href="/static/styles.css?v=win98" />
+  <link rel="stylesheet" href="/static/styles.css?v=win98-3" />
 </head>
 <body>
   <aside class="sidebar">
@@ -50,6 +50,11 @@
           <h1 id="titulo-pagina">Visão geral</h1>
           <p id="subtitulo-pagina">Demanda, ocupação e conflitos da previsão SAETO.</p>
         </div>
+        <div class="sessao-admin">
+          <p class="kicker">Logado(a)</p>
+          <strong id="nome-logado"></strong>
+          <button type="button" class="btn sm ghost" id="btn-sair-admin">Sair</button>
+        </div>
         <div class="top-actions">
           <input type="file" id="arquivo-planilha" accept=".xlsx,.xlsm" hidden />
           <button type="button" class="btn gold" id="btn-enviar-planilha">Enviar planilha</button>
@@ -87,9 +92,37 @@
       Iniciar
     </button>
     <span class="task-btn ativo">SAETO Aplicação</span>
+    <span class="assinatura">Criado por Alexandre Tolentino © 2026</span>
     <span class="tray"><span id="relogio">00:00</span></span>
   </footer>
 
-  <script src="/static/app.js?v=win98"></script>
+  <div id="tela-admin-login" class="login-overlay">
+    <section class="win login-win">
+      <div class="win-title">
+        <span class="win-icon" aria-hidden="true"></span>
+        <span>Entrar — SAETO Aplicação</span>
+        <span class="win-controls" aria-hidden="true">
+          <span class="win-ctrl">_</span>
+          <span class="win-ctrl">□</span>
+          <span class="win-ctrl close">×</span>
+        </span>
+      </div>
+      <form id="form-admin-login" class="login-body">
+        <p class="kicker">Acesso da coordenação</p>
+        <h1>Entre com seu e-mail</h1>
+        <p>Use o e-mail institucional e a senha da coordenação.</p>
+        <label class="campo">E-mail
+          <input id="admin-email" type="email" autocomplete="username" required />
+        </label>
+        <label class="campo">Senha
+          <input id="admin-senha" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="erro-admin-login" class="erro hidden"></p>
+        <button type="submit" class="btn gold">Entrar</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/static/app.js?v=win98-3"></script>
 </body>
 </html>
