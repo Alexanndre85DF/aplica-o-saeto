@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import Cookie, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,7 +25,9 @@ from .admin_auth import (
 from .alocacao import (
     alocar,
     candidatos_para_vaga,
+    contar_choques,
     enriquecer_vaga,
+    enriquecer_vagas,
     finalizar_vaga,
     organizar,
     receber_prova,
@@ -57,6 +60,7 @@ from .regras import dias_do_municipio, fmt_data
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(title="SAETO SRE Gurupi — Sistema de Aplicação")
+app.add_middleware(GZipMiddleware, minimum_size=800)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -200,7 +204,10 @@ async def proteger_admin(request: Request, call_next):
         or path == "/api/admin/entrar"
         or path == "/api/admin/sair"
     ):
-        return await call_next(request)
+        response = await call_next(request)
+        if path.startswith("/static"):
+            response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        return response
     if path.startswith("/api/"):
         try:
             admin_do_token(request.cookies.get(COOKIE_ADMIN))
@@ -331,9 +338,17 @@ def api_opcoes():
 @app.get("/api/resumo")
 def resumo():
     with get_db() as conn:
-        def q(sql, params=()):
-            return conn.execute(sql, params).fetchone()[0]
-
+        tot = conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM municipios) AS municipios,
+                 (SELECT COUNT(*) FROM escolas) AS escolas,
+                 (SELECT COUNT(*) FROM aplicadores) AS aplicadores,
+                 COUNT(*) AS vagas,
+                 COALESCE(SUM(CASE WHEN aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
+                 COALESCE(SUM(CASE WHEN aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                 COALESCE(SUM(CASE WHEN status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
+               FROM vagas"""
+        ).fetchone()
         por_rede = {
             r["rede"]: r["n"]
             for r in conn.execute(
@@ -355,28 +370,15 @@ def resumo():
                    ORDER BY m.nome"""
             )
         )
-        vagas_rows = conn.execute(
-            """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.id AS municipio_id
-               FROM vagas v
-               JOIN escolas e ON e.id = v.escola_id
-               JOIN municipios m ON m.id = e.municipio_id
-               WHERE v.aplicador_id IS NOT NULL"""
-        ).fetchall()
-        choques = 0
-        for row in vagas_rows:
-            d = enriquecer_vaga(conn, dict(row))
-            if d["tem_choque"]:
-                choques += 1
-
         return {
-            "municipios": q("SELECT COUNT(*) FROM municipios"),
-            "escolas": q("SELECT COUNT(*) FROM escolas"),
-            "aplicadores": q("SELECT COUNT(*) FROM aplicadores"),
-            "vagas": q("SELECT COUNT(*) FROM vagas"),
-            "ocupadas": q("SELECT COUNT(*) FROM vagas WHERE aplicador_id IS NOT NULL"),
-            "livres": q("SELECT COUNT(*) FROM vagas WHERE aplicador_id IS NULL"),
-            "finalizadas": q("SELECT COUNT(*) FROM vagas WHERE status = 'FINALIZADA'"),
-            "choques": choques,
+            "municipios": tot["municipios"],
+            "escolas": tot["escolas"],
+            "aplicadores": tot["aplicadores"],
+            "vagas": tot["vagas"],
+            "ocupadas": tot["ocupadas"],
+            "livres": tot["livres"],
+            "finalizadas": tot["finalizadas"],
+            "choques": contar_choques(conn),
             "por_rede": por_rede,
             "por_municipio": por_mun,
             "banco": "supabase" if usando_postgres() else "sqlite",
@@ -546,29 +548,34 @@ def escolas(municipio_id: int | None = None):
 @app.get("/api/aplicadores")
 def aplicadores():
     with get_db() as conn:
-        lista = []
-        for a in conn.execute(
-            "SELECT * FROM aplicadores ORDER BY COALESCE(numero, 9999), codigo"
-        ).fetchall():
-            vagas = conn.execute(
-                """SELECT v.id, v.serie, v.turno, v.data, v.status,
+        pessoas = rows_to_dicts(
+            conn.execute(
+                "SELECT * FROM aplicadores ORDER BY COALESCE(numero, 9999), codigo"
+            )
+        )
+        por_apl: dict[int, list] = {}
+        for r in rows_to_dicts(
+            conn.execute(
+                """SELECT v.id, v.aplicador_id, v.serie, v.turno, v.data, v.status,
                           e.nome AS escola, e.rede, m.nome AS municipio
                    FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
                    JOIN municipios m ON m.id = e.municipio_id
-                   WHERE v.aplicador_id = ?
-                   ORDER BY v.data, v.turno, e.nome""",
-                (a["id"],),
-            ).fetchall()
-            muns = sorted({r["municipio"] for r in vagas})
-            item = row_to_dict(a)
+                   WHERE v.aplicador_id IS NOT NULL
+                   ORDER BY v.data, v.turno, e.nome"""
+            )
+        ):
+            por_apl.setdefault(r["aplicador_id"], []).append(r)
+        lista = []
+        for item in pessoas:
+            vagas = por_apl.get(item["id"], [])
             item["carga"] = len(vagas)
-            item["municipios"] = muns
-            item["vagas"] = [dict(r) for r in vagas]
+            item["municipios"] = sorted({r["municipio"] for r in vagas})
+            item["vagas"] = vagas
             item["cpf_fmt"] = formatar_cpf(item.get("cpf"))
             item["identificado"] = not _eh_placeholder(item.get("nome"), item.get("codigo"))
             if item.get("cpf") and not item.get("acesso_token"):
-                item["acesso_token"] = garantir_token_acesso(conn, a["id"])
+                item["acesso_token"] = garantir_token_acesso(conn, item["id"])
             item["tem_acesso"] = bool(item.get("cpf")) and item["identificado"]
             lista.append(item)
         return lista
@@ -790,8 +797,7 @@ def quadro(municipio_id: int):
         avisos = 0
         finalizadas = 0
 
-        for raw in vagas:
-            d = enriquecer_vaga(conn, dict(raw))
+        for d in enriquecer_vagas(conn, [dict(raw) for raw in vagas]):
             if d["vago"]:
                 livres += 1
             if d["tem_choque"]:

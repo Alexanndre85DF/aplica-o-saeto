@@ -19,3 +19,6 @@ alter table if exists viagens add column if not exists dias_aplicacao text;
 alter table if exists aplicadores add column if not exists cpf text;
 alter table if exists aplicadores add column if not exists numero integer;
 alter table if exists aplicadores add column if not exists acesso_token text;
+
+create index if not exists idx_vagas_escola on vagas(escola_id);
+create index if not exists idx_vagas_aplicador_data on vagas(aplicador_id, data, turno);

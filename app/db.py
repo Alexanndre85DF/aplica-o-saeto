@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
+import time
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any, Iterator
@@ -61,6 +63,8 @@ CREATE TABLE IF NOT EXISTS vagas (
 
 CREATE INDEX IF NOT EXISTS idx_vagas_data ON vagas(data);
 CREATE INDEX IF NOT EXISTS idx_vagas_aplicador ON vagas(aplicador_id);
+CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id);
+CREATE INDEX IF NOT EXISTS idx_vagas_aplicador_data ON vagas(aplicador_id, data, turno);
 CREATE INDEX IF NOT EXISTS idx_escolas_municipio ON escolas(municipio_id);
 
 CREATE TABLE IF NOT EXISTS sessoes_acesso (
@@ -129,6 +133,8 @@ CREATE TABLE IF NOT EXISTS vagas (
 
 CREATE INDEX IF NOT EXISTS idx_vagas_data ON vagas(data);
 CREATE INDEX IF NOT EXISTS idx_vagas_aplicador ON vagas(aplicador_id);
+CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id);
+CREATE INDEX IF NOT EXISTS idx_vagas_aplicador_data ON vagas(aplicador_id, data, turno);
 CREATE INDEX IF NOT EXISTS idx_escolas_municipio ON escolas(municipio_id);
 
 CREATE TABLE IF NOT EXISTS sessoes_acesso (
@@ -261,7 +267,18 @@ class PgConnection:
         self._inner.rollback()
 
     def close(self) -> None:
-        self._inner.close()
+        try:
+            self._inner.close()
+        except Exception:
+            pass
+        self._cursor = None
+
+    @property
+    def closed(self) -> bool:
+        try:
+            return bool(self._inner.closed)
+        except Exception:
+            return True
 
 
 def _valor_pg(valor):
@@ -340,12 +357,31 @@ def _url_postgres(url: str) -> str:
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
     parsed = urlparse(url)
-    permitidos = {"sslmode", "connect_timeout", "options"}
+    permitidos = {
+        "sslmode",
+        "connect_timeout",
+        "options",
+        "keepalives",
+        "keepalives_idle",
+        "keepalives_interval",
+        "keepalives_count",
+    }
     query = {k: v for k, v in parse_qsl(parsed.query) if k.lower() in permitidos}
-    if "sslmode" not in {k.lower() for k in query}:
+    chaves = {k.lower() for k in query}
+    if "sslmode" not in chaves:
         query["sslmode"] = "require"
+    if "keepalives" not in chaves:
+        query["keepalives"] = "1"
+    if "keepalives_idle" not in chaves:
+        query["keepalives_idle"] = "30"
     limpa = parsed._replace(query=urlencode(query))
     return urlunparse(limpa)
+
+
+_pg_lock = threading.Lock()
+_pg_pool: list[PgConnection] = []
+_PG_POOL_MAX = 5
+_pg_host_logged = False
 
 
 def connect():
@@ -353,15 +389,18 @@ def connect():
         import psycopg
         from urllib.parse import urlparse
 
+        global _pg_host_logged
         url = _url_postgres(DATABASE_URL)
         parsed = urlparse(url)
-        print("Postgres host:", parsed.hostname, "porta:", parsed.port)
+        if not _pg_host_logged:
+            print("Postgres host:", parsed.hostname, "porta:", parsed.port)
+            _pg_host_logged = True
         try:
             inner = psycopg.connect(
                 url,
                 autocommit=False,
                 prepare_threshold=None,
-                connect_timeout=30,
+                connect_timeout=15,
             )
         except Exception as exc:
             msg = str(exc).replace(parsed.password or "", "***") if parsed.password else str(exc)
@@ -376,17 +415,79 @@ def connect():
     return conn
 
 
+def _pg_viva(conn: PgConnection) -> bool:
+    try:
+        if conn.closed:
+            return False
+        idade = time.monotonic() - getattr(conn, "_usado_em", 0)
+        if idade < 45:
+            return True
+        conn.execute("SELECT 1")
+        conn._usado_em = time.monotonic()
+        return True
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return False
+
+
+def _pegar_pg() -> PgConnection:
+    while True:
+        cand = None
+        with _pg_lock:
+            if _pg_pool:
+                cand = _pg_pool.pop()
+        if cand is None:
+            conn = connect()
+            conn._usado_em = time.monotonic()
+            return conn
+        if _pg_viva(cand):
+            cand._usado_em = time.monotonic()
+            return cand
+
+
+def _devolver_pg(conn: PgConnection) -> None:
+    if conn.closed:
+        return
+    with _pg_lock:
+        if len(_pg_pool) < _PG_POOL_MAX:
+            _pg_pool.append(conn)
+            return
+    conn.close()
+
+
 @contextmanager
 def get_db() -> Iterator[Any]:
-    conn = connect()
+    if not (USAR_POSTGRES and DATABASE_URL):
+        conn = connect()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
+
+    conn = _pegar_pg()
     try:
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
         raise
-    finally:
-        conn.close()
+    else:
+        _devolver_pg(conn)
 
 
 def _permitir_vaga_sem_data(conn) -> None:
@@ -445,6 +546,8 @@ def _permitir_vaga_sem_data(conn) -> None:
     conn.execute("ALTER TABLE vagas_data_opcional RENAME TO vagas")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vagas_data ON vagas(data)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vagas_aplicador ON vagas(aplicador_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vagas_aplicador_data ON vagas(aplicador_id, data, turno)")
     conn.execute("PRAGMA foreign_keys = ON")
 
 
@@ -475,6 +578,8 @@ def _ensure_colunas_postgres(conn) -> None:
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS prova_recebida_em TEXT",
         "ALTER TABLE viagens ADD COLUMN IF NOT EXISTS dias_aplicacao TEXT",
         "ALTER TABLE vagas ALTER COLUMN origem_linha TYPE BIGINT",
+        "CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id)",
+        "CREATE INDEX IF NOT EXISTS idx_vagas_aplicador_data ON vagas(aplicador_id, data, turno)",
     ]
     for sql in stmts:
         try:
@@ -544,11 +649,14 @@ def ensure_colunas(conn) -> None:
             conn.execute("ALTER TABLE viagens ADD COLUMN dias_aplicacao TEXT")
     except Exception:
         pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vagas_aplicador_data ON vagas(aplicador_id, data, turno)"
+    )
 
 
 def init_db() -> None:
-    conn = connect()
-    try:
+    with get_db() as conn:
         if USAR_POSTGRES and DATABASE_URL:
             conn.executescript(PG_SCHEMA)
             conn.execute(
@@ -566,12 +674,6 @@ def init_db() -> None:
                 ("schema", SCHEMA_VERSION),
             )
             ensure_colunas(conn)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
     if USAR_POSTGRES and DATABASE_URL:
         _migrar_sqlite_se_postgres_vazio()
     elif usando_nuvem():
@@ -579,12 +681,8 @@ def init_db() -> None:
             _migrar_sqlite_se_nuvem_vazia()
         except Exception as exc:
             print("Aviso: ainda não gravou no Supabase.", exc)
-    conn = connect()
-    try:
+    with get_db() as conn:
         _limpar_datas_inventadas(conn)
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _migrar_sqlite_se_nuvem_vazia() -> None:

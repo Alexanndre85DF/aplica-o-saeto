@@ -19,31 +19,28 @@ def _nome_aplicador(row) -> str | None:
     return row["nome"] or row["codigo"]
 
 
-def problemas_da_vaga(conn, vaga: dict) -> list[dict]:
+def _vago_msg() -> dict:
+    return {
+        "tipo": "vago",
+        "grau": "vago",
+        "mensagem": "Sem aplicador nesta vaga.",
+    }
+
+
+def _unicos_problemas(problemas: list[dict]) -> list[dict]:
+    vistos = set()
+    unicos = []
+    for p in problemas:
+        chave = (p["tipo"], p["mensagem"])
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        unicos.append(p)
+    return unicos
+
+
+def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
     problemas = []
-    aplicador_id = vaga.get("aplicador_id")
-    if not aplicador_id:
-        problemas.append(
-            {
-                "tipo": "vago",
-                "grau": "vago",
-                "mensagem": "Sem aplicador nesta vaga.",
-            }
-        )
-        return problemas
-
-    outros = conn.execute(
-        """
-        SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
-               m.nome AS municipio_nome, m.id AS municipio_id
-        FROM vagas v
-        JOIN escolas e ON e.id = v.escola_id
-        JOIN municipios m ON m.id = e.municipio_id
-        WHERE v.aplicador_id = ? AND v.id != ?
-        """,
-        (aplicador_id, vaga["id"]),
-    ).fetchall()
-
     mun_atual = vaga.get("municipio_id")
     mesma_data = bool(vaga.get("data"))
     for o in outros:
@@ -110,6 +107,51 @@ def problemas_da_vaga(conn, vaga: dict) -> list[dict]:
                     "mensagem": "Turno integral no mesmo dia de outro turno.",
                 }
             )
+    return problemas
+
+
+def _aviso_par_2ano(vaga: dict, par_row) -> dict | None:
+    if not par_row:
+        return None
+    aplicador_id = vaga.get("aplicador_id")
+    par_apl = par_row.get("aplicador_id")
+    nome = par_row.get("apl_nome") or par_row.get("nome")
+    codigo = par_row.get("apl_codigo") or par_row.get("codigo")
+    if par_apl and par_apl != aplicador_id:
+        return {
+            "tipo": "par_2ano",
+            "grau": "aviso",
+            "mensagem": (
+                "2º ano Dia 1 e Dia 2 com aplicadores diferentes "
+                f"({nome or codigo})."
+            ),
+        }
+    if not par_apl and eh_segundo_ano_dia1(vaga["serie"]):
+        return {
+            "tipo": "par_2ano_vago",
+            "grau": "aviso",
+            "mensagem": "O Dia 2 desta turma ainda está vago.",
+        }
+    return None
+
+
+def problemas_da_vaga(conn, vaga: dict) -> list[dict]:
+    aplicador_id = vaga.get("aplicador_id")
+    if not aplicador_id:
+        return [_vago_msg()]
+
+    outros = conn.execute(
+        """
+        SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
+               m.nome AS municipio_nome, m.id AS municipio_id
+        FROM vagas v
+        JOIN escolas e ON e.id = v.escola_id
+        JOIN municipios m ON m.id = e.municipio_id
+        WHERE v.aplicador_id = ? AND v.id != ?
+        """,
+        (aplicador_id, vaga["id"]),
+    ).fetchall()
+    problemas = _problemas_com_outros(vaga, outros)
 
     par = serie_par_segundo_ano(vaga["serie"])
     if par:
@@ -120,44 +162,86 @@ def problemas_da_vaga(conn, vaga: dict) -> list[dict]:
                WHERE v.escola_id = ? AND v.turno = ? AND v.serie = ? AND v.ordem = ?""",
             (vaga["escola_id"], vaga["turno"], par, vaga.get("ordem") or 1),
         ).fetchone()
-        if par_row and par_row["aplicador_id"] and par_row["aplicador_id"] != aplicador_id:
-            problemas.append(
-                {
-                    "tipo": "par_2ano",
-                    "grau": "aviso",
-                    "mensagem": (
-                        "2º ano Dia 1 e Dia 2 com aplicadores diferentes "
-                        f"({par_row['nome'] or par_row['codigo']})."
-                    ),
-                }
-            )
-        elif par_row and not par_row["aplicador_id"] and eh_segundo_ano_dia1(vaga["serie"]):
-            problemas.append(
-                {
-                    "tipo": "par_2ano_vago",
-                    "grau": "aviso",
-                    "mensagem": "O Dia 2 desta turma ainda está vago.",
-                }
-            )
+        aviso = _aviso_par_2ano(vaga, dict(par_row) if par_row else None)
+        if aviso:
+            problemas.append(aviso)
 
-    vistos = set()
-    unicos = []
-    for p in problemas:
-        chave = (p["tipo"], p["mensagem"])
-        if chave in vistos:
-            continue
-        vistos.add(chave)
-        unicos.append(p)
-    return unicos
+    return _unicos_problemas(problemas)
 
 
 def enriquecer_vaga(conn, vaga: dict) -> dict:
-    problemas = problemas_da_vaga(conn, vaga)
-    vaga["problemas"] = problemas
-    vaga["tem_choque"] = any(p["grau"] == "choque" for p in problemas)
-    vaga["tem_aviso"] = any(p["grau"] == "aviso" for p in problemas)
-    vaga["vago"] = vaga.get("aplicador_id") is None
-    return vaga
+    return enriquecer_vagas(conn, [vaga])[0]
+
+
+def enriquecer_vagas(conn, vagas: list[dict]) -> list[dict]:
+    ids = {v.get("aplicador_id") for v in vagas if v.get("aplicador_id")}
+    outros_por: dict[int, list[dict]] = defaultdict(list)
+    if ids:
+        ph = ",".join("?" * len(ids))
+        rows = conn.execute(
+            f"""
+            SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
+                   m.nome AS municipio_nome, m.id AS municipio_id
+            FROM vagas v
+            JOIN escolas e ON e.id = v.escola_id
+            JOIN municipios m ON m.id = e.municipio_id
+            WHERE v.aplicador_id IN ({ph})
+            """,
+            tuple(ids),
+        ).fetchall()
+        for r in rows:
+            d = dict(r)
+            outros_por[d["aplicador_id"]].append(d)
+
+    indice_local = {
+        (v["escola_id"], v["turno"], v["serie"], v.get("ordem") or 1): v for v in vagas
+    }
+
+    for vaga in vagas:
+        aplicador_id = vaga.get("aplicador_id")
+        if not aplicador_id:
+            problemas = [_vago_msg()]
+        else:
+            outros = [o for o in outros_por.get(aplicador_id, []) if o["id"] != vaga["id"]]
+            problemas = _problemas_com_outros(vaga, outros)
+            par = serie_par_segundo_ano(vaga["serie"])
+            if par:
+                aviso = _aviso_par_2ano(
+                    vaga,
+                    indice_local.get(
+                        (vaga["escola_id"], vaga["turno"], par, vaga.get("ordem") or 1)
+                    ),
+                )
+                if aviso:
+                    problemas.append(aviso)
+            problemas = _unicos_problemas(problemas)
+        vaga["problemas"] = problemas
+        vaga["tem_choque"] = any(p["grau"] == "choque" for p in problemas)
+        vaga["tem_aviso"] = any(p["grau"] == "aviso" for p in problemas)
+        vaga["vago"] = aplicador_id is None
+    return vagas
+
+
+def contar_choques(conn) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(DISTINCT v1.id) AS n
+        FROM vagas v1
+        JOIN escolas e1 ON e1.id = v1.escola_id
+        JOIN vagas v2 ON v2.aplicador_id = v1.aplicador_id AND v2.id != v1.id
+        JOIN escolas e2 ON e2.id = v2.escola_id
+        WHERE v1.aplicador_id IS NOT NULL
+          AND v1.data IS NOT NULL
+          AND v2.data = v1.data
+          AND (
+            (v1.turno = v2.turno AND v1.escola_id != v2.escola_id)
+            OR (e1.municipio_id != e2.municipio_id)
+          )
+        """
+    ).fetchone()
+    if not row:
+        return 0
+    return int(row["n"] or 0)
 
 
 def pode_alocar(conn, vaga_id: int, aplicador_id: int) -> dict:

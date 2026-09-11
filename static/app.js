@@ -18,6 +18,17 @@ const state = {
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
+let _munCache = { em: 0, dados: null };
+
+async function apiMunicipios(forcar = false) {
+  if (!forcar && _munCache.dados && Date.now() - _munCache.em < 60000) {
+    return _munCache.dados;
+  }
+  _munCache.dados = await api("/api/municipios");
+  _munCache.em = Date.now();
+  return _munCache.dados;
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: "same-origin",
@@ -36,7 +47,12 @@ async function api(path, options = {}) {
     throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
   if (res.status === 204) return null;
-  return res.json();
+  const data = await res.json();
+  const metodo = (options.method || "GET").toUpperCase();
+  if (metodo !== "GET" && path.includes("/api/municipios")) {
+    _munCache = { em: 0, dados: null };
+  }
+  return data;
 }
 
 function titulo(h1, p) {
@@ -372,11 +388,13 @@ function cardCampo(item, feita) {
 
 async function carregarCampo() {
   titulo("Acompanhamento no campo", "No período de aplicação: de um lado o que ainda falta, do outro o que já deu baixa.");
-  const municipios = await api("/api/municipios");
   const qs = new URLSearchParams();
   if (state.campoMun) qs.set("municipio_id", state.campoMun);
   if (state.campoData) qs.set("data", state.campoData);
-  const d = await api(`/api/acompanhamento?${qs.toString()}`);
+  const [municipios, d] = await Promise.all([
+    apiMunicipios(),
+    api(`/api/acompanhamento?${qs.toString()}`),
+  ]);
   const munOpts = [`<option value="">Todos os municípios</option>`]
     .concat(municipios.map((m) => `<option value="${m.id}" ${String(m.id) === String(state.campoMun) ? "selected" : ""}>${tit(m.nome)}</option>`))
     .join("");
@@ -449,11 +467,13 @@ function cardProva(item, recebida) {
 
 async function carregarProvas() {
   titulo("Recebimento de provas", "Controle da logística: cada aplicação alocada aparece aqui até a prova ser entregue ao aplicador.");
-  const municipios = await api("/api/municipios");
   const qs = new URLSearchParams();
   if (state.provaMun) qs.set("municipio_id", state.provaMun);
   if (state.provaData) qs.set("data", state.provaData);
-  const d = await api(`/api/recebimento-provas?${qs.toString()}`);
+  const [municipios, d] = await Promise.all([
+    apiMunicipios(),
+    api(`/api/recebimento-provas?${qs.toString()}`),
+  ]);
   const munOpts = [`<option value="">Todos os municípios</option>`]
     .concat(municipios.map((m) => `<option value="${m.id}" ${String(m.id) === String(state.provaMun) ? "selected" : ""}>${tit(m.nome)}</option>`))
     .join("");
@@ -508,8 +528,15 @@ async function carregarProvas() {
 
 async function carregarQuadro() {
   titulo("Quadro de aplicação", "Grade por escola, turno e dia — como um horário, com vago e choque visíveis.");
-  const municipios = await api("/api/municipios");
-  if (!state.municipioId && municipios.length) state.municipioId = municipios[0].id;
+  const munP = apiMunicipios();
+  let quadroP = state.municipioId
+    ? api(`/api/quadro?municipio_id=${state.municipioId}`)
+    : null;
+  const municipios = await munP;
+  if (!state.municipioId && municipios.length) {
+    state.municipioId = municipios[0].id;
+    quadroP = api(`/api/quadro?municipio_id=${state.municipioId}`);
+  }
   const munOpts = municipios
     .map((m) => `<option value="${m.id}" ${m.id === state.municipioId ? "selected" : ""}>${tit(m.nome)}</option>`)
     .join("");
@@ -598,7 +625,7 @@ async function carregarQuadro() {
     pintarQuadro();
   };
   try {
-    await pintarQuadro();
+    await pintarQuadro(quadroP);
   } catch (err) {
     $("#quadro-corpo").innerHTML = `<section class="panel"><p>Não deu para montar o quadro: ${escHtml(err.message)}</p></section>`;
   }
@@ -846,9 +873,11 @@ function ligarPeriodoQuadro() {
   });
 }
 
-async function pintarQuadro() {
+async function pintarQuadro(preloaded = null) {
   if (!state.municipioId) return;
-  const q = await api(`/api/quadro?municipio_id=${state.municipioId}`);
+  const q = preloaded
+    ? await preloaded
+    : await api(`/api/quadro?municipio_id=${state.municipioId}`);
   const periodoHtml = htmlPeriodo(q);
   if (!q.vagas) {
     $("#quadro-corpo").innerHTML = `
@@ -1262,7 +1291,7 @@ async function carregarCadastro() {
   titulo("Cadastros", "Inclua município, escola, aplicador e vaga de aplicação. Pode começar do zero, sem planilha.");
   const [opcoes, municipios, escolas] = await Promise.all([
     api("/api/opcoes"),
-    api("/api/municipios"),
+    apiMunicipios(true),
     api("/api/escolas"),
   ]);
   const tabs = [
