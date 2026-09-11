@@ -268,47 +268,85 @@ def pode_alocar(conn, vaga_id: int, aplicador_id: int) -> dict:
     }
 
 
+def _agenda_ocupadas(conn) -> dict[int, list[dict]]:
+    por: dict[int, list[dict]] = defaultdict(list)
+    for r in conn.execute(
+        """
+        SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
+               m.nome AS municipio_nome, m.id AS municipio_id
+        FROM vagas v
+        JOIN escolas e ON e.id = v.escola_id
+        JOIN municipios m ON m.id = e.municipio_id
+        WHERE v.aplicador_id IS NOT NULL
+        """
+    ):
+        d = dict(r)
+        por[d["aplicador_id"]].append(d)
+    return por
+
+
+def _par_da_vaga(conn, vaga: dict) -> dict | None:
+    par = serie_par_segundo_ano(vaga["serie"])
+    if not par:
+        return None
+    row = conn.execute(
+        """SELECT v.aplicador_id, a.codigo, a.nome
+           FROM vagas v
+           LEFT JOIN aplicadores a ON a.id = v.aplicador_id
+           WHERE v.escola_id = ? AND v.turno = ? AND v.serie = ? AND v.ordem = ?""",
+        (vaga["escola_id"], vaga["turno"], par, vaga.get("ordem") or 1),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def checar_alocacao(vaga: dict, aplicador_id: int, agenda: dict, par_row=None) -> dict:
+    simulada = dict(vaga)
+    simulada["aplicador_id"] = aplicador_id
+    outros = [o for o in agenda.get(aplicador_id, []) if o["id"] != vaga["id"]]
+    problemas = _problemas_com_outros(simulada, outros)
+    aviso = _aviso_par_2ano(simulada, par_row)
+    if aviso:
+        problemas.append(aviso)
+    problemas = _unicos_problemas(problemas)
+    choques = [p for p in problemas if p["grau"] == "choque"]
+    return {
+        "ok": len(choques) == 0,
+        "choques": choques,
+        "avisos": [p for p in problemas if p["grau"] == "aviso"],
+        "problemas": problemas,
+    }
+
+
 def candidatos_para_vaga(conn, vaga_id: int) -> list[dict]:
     vaga = conn.execute(
-        """SELECT v.*, e.municipio_id
+        """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
+           JOIN municipios m ON m.id = e.municipio_id
            WHERE v.id = ?""",
         (vaga_id,),
     ).fetchone()
     if not vaga:
         return []
+    vaga = dict(vaga)
 
     aplicadores = conn.execute(
         "SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo"
     ).fetchall()
-
-    cargas = {
-        r["aplicador_id"]: r["n"]
-        for r in conn.execute(
-            """SELECT aplicador_id, COUNT(*) n FROM vagas
-               WHERE aplicador_id IS NOT NULL GROUP BY aplicador_id"""
-        )
-    }
-    muns = defaultdict(set)
-    for r in conn.execute(
-        """SELECT v.aplicador_id, e.municipio_id
-           FROM vagas v JOIN escolas e ON e.id = v.escola_id
-           WHERE v.aplicador_id IS NOT NULL"""
-    ):
-        muns[r["aplicador_id"]].add(r["municipio_id"])
+    agenda = _agenda_ocupadas(conn)
+    par_row = _par_da_vaga(conn, vaga)
 
     lista = []
     for a in aplicadores:
-        checagem = pode_alocar(conn, vaga_id, a["id"])
-        ja_no_mun = vaga["municipio_id"] in muns[a["id"]]
+        checagem = checar_alocacao(vaga, a["id"], agenda, par_row)
+        slots = agenda.get(a["id"], [])
         lista.append(
             {
                 "id": a["id"],
                 "codigo": a["codigo"],
                 "nome": a["nome"] or a["codigo"],
-                "carga": cargas.get(a["id"], 0),
-                "no_municipio": ja_no_mun,
+                "carga": len(slots),
+                "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],
                 "avisos": checagem["avisos"],
@@ -602,16 +640,18 @@ def organizar(
                 params,
             )
 
-    vagas = list(
-        conn.execute(
-            f"""SELECT v.*, e.municipio_id, e.nome AS escola_nome
+    vagas = [
+        dict(r)
+        for r in conn.execute(
+            f"""SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
                 FROM vagas v
                 JOIN escolas e ON e.id = v.escola_id
+                JOIN municipios m ON m.id = e.municipio_id
                 WHERE v.aplicador_id IS NULL {filtro}
                 ORDER BY e.municipio_id, v.data, v.turno, e.nome, v.serie""",
             params,
         )
-    )
+    ]
     random.shuffle(vagas)
 
     aplicadores = list(
@@ -624,37 +664,30 @@ def organizar(
 
     alocadas = 0
     sem_candidato = 0
+    agenda = _agenda_ocupadas(conn)
+    pares_cache: dict[tuple, dict | None] = {}
+    ids_filtro = {int(i) for i in aplicador_ids} if aplicador_ids else None
 
-    def carga(aid: int) -> int:
-        row = conn.execute(
-            "SELECT COUNT(*) n FROM vagas WHERE aplicador_id = ?", (aid,)
-        ).fetchone()
-        return row["n"]
+    def par_row_de(item: dict):
+        par = serie_par_segundo_ano(item["serie"])
+        if not par:
+            return None
+        chave = (item["escola_id"], item["turno"], par, item.get("ordem") or 1)
+        if chave not in pares_cache:
+            pares_cache[chave] = _par_da_vaga(conn, item)
+        return pares_cache[chave]
 
-    def no_municipio(aid: int, mid: int) -> bool:
-        row = conn.execute(
-            """SELECT 1 FROM vagas v
-               JOIN escolas e ON e.id = v.escola_id
-               WHERE v.aplicador_id = ? AND e.municipio_id = ?
-               LIMIT 1""",
-            (aid, mid),
-        ).fetchone()
-        return row is not None
-
-    def na_escola_semana(aid: int, escola_id: int) -> bool:
-        row = conn.execute(
-            """SELECT 1 FROM vagas
-               WHERE aplicador_id = ? AND escola_id = ? LIMIT 1""",
-            (aid, escola_id),
-        ).fetchone()
-        return row is not None
+    def registrar(aid: int, item: dict) -> None:
+        slot = dict(item)
+        slot["aplicador_id"] = aid
+        agenda[aid].append(slot)
 
     for vaga in vagas:
-        atual = conn.execute("SELECT aplicador_id FROM vagas WHERE id = ?", (vaga["id"],)).fetchone()
-        if atual["aplicador_id"]:
+        if any(o["id"] == vaga["id"] for slots in agenda.values() for o in slots):
             continue
 
         escolhido = None
+        par_row = par_row_de(vaga)
 
         if eh_segundo_ano_dia2(vaga["serie"]):
             par = serie_par_segundo_ano(vaga["serie"])
@@ -664,24 +697,23 @@ def organizar(
                 (vaga["escola_id"], vaga["turno"], par, vaga["ordem"]),
             ).fetchone()
             if dia1 and dia1["aplicador_id"]:
-                checagem = pode_alocar(conn, vaga["id"], dia1["aplicador_id"])
-                if checagem["ok"] and (
-                    not aplicador_ids or dia1["aplicador_id"] in {int(i) for i in aplicador_ids}
-                ):
+                checagem = checar_alocacao(vaga, dia1["aplicador_id"], agenda, par_row)
+                if checagem["ok"] and (not ids_filtro or dia1["aplicador_id"] in ids_filtro):
                     escolhido = dia1["aplicador_id"]
 
         if escolhido is None:
             melhores = []
             for a in aplicadores:
-                checagem = pode_alocar(conn, vaga["id"], a["id"])
+                checagem = checar_alocacao(vaga, a["id"], agenda, par_row)
                 if not checagem["ok"]:
                     continue
+                slots = agenda.get(a["id"], [])
                 score = random.randint(-8, 8)
-                if no_municipio(a["id"], vaga["municipio_id"]):
+                if any(o["municipio_id"] == vaga["municipio_id"] for o in slots):
                     score += 100
-                if na_escola_semana(a["id"], vaga["escola_id"]):
+                if any(o["escola_id"] == vaga["escola_id"] for o in slots):
                     score += 40
-                score -= carga(a["id"]) * 4
+                score -= len(slots) * 4
                 score -= len(checagem["avisos"]) * 8
                 melhores.append((score, a["id"]))
             if melhores:
@@ -696,9 +728,21 @@ def organizar(
             "UPDATE vagas SET aplicador_id = ?, alocacao = ?, prova_recebida_em = CASE WHEN aplicador_id = ? THEN prova_recebida_em ELSE NULL END WHERE id = ?",
             (escolhido, "AUTO", escolhido, vaga["id"]),
         )
+        registrar(escolhido, vaga)
         alocadas += 1
         if eh_segundo_ano_dia1(vaga["serie"]):
-            _espelhar_par(conn, vaga, escolhido, origem="AUTO")
+            par = serie_par_segundo_ano(vaga["serie"])
+            if par and _espelhar_par(conn, vaga, escolhido, origem="AUTO"):
+                outra = conn.execute(
+                    """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
+                       FROM vagas v
+                       JOIN escolas e ON e.id = v.escola_id
+                       JOIN municipios m ON m.id = e.municipio_id
+                       WHERE v.escola_id = ? AND v.turno = ? AND v.serie = ? AND v.ordem = ?""",
+                    (vaga["escola_id"], vaga["turno"], par, vaga.get("ordem") or 1),
+                ).fetchone()
+                if outra:
+                    registrar(escolhido, dict(outra))
 
     restantes = conn.execute(
         f"""SELECT COUNT(*) n FROM vagas v

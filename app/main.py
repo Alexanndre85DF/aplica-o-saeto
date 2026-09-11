@@ -546,8 +546,18 @@ def escolas(municipio_id: int | None = None):
 
 
 @app.get("/api/aplicadores")
-def aplicadores():
+def aplicadores(lista: bool = False):
     with get_db() as conn:
+        if lista:
+            pessoas = rows_to_dicts(
+                conn.execute(
+                    """SELECT id, codigo, nome, ativo, numero FROM aplicadores
+                       ORDER BY COALESCE(numero, 9999), codigo"""
+                )
+            )
+            for item in pessoas:
+                item["identificado"] = not _eh_placeholder(item.get("nome"), item.get("codigo"))
+            return pessoas
         pessoas = rows_to_dicts(
             conn.execute(
                 "SELECT * FROM aplicadores ORDER BY COALESCE(numero, 9999), codigo"

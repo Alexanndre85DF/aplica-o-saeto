@@ -19,6 +19,7 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 let _munCache = { em: 0, dados: null };
+let _aplListaCache = { em: 0, dados: null };
 
 async function apiMunicipios(forcar = false) {
   if (!forcar && _munCache.dados && Date.now() - _munCache.em < 60000) {
@@ -27,6 +28,15 @@ async function apiMunicipios(forcar = false) {
   _munCache.dados = await api("/api/municipios");
   _munCache.em = Date.now();
   return _munCache.dados;
+}
+
+async function apiAplicadoresLista(forcar = false) {
+  if (!forcar && _aplListaCache.dados && Date.now() - _aplListaCache.em < 60000) {
+    return _aplListaCache.dados;
+  }
+  _aplListaCache.dados = await api("/api/aplicadores?lista=1");
+  _aplListaCache.em = Date.now();
+  return _aplListaCache.dados;
 }
 
 async function api(path, options = {}) {
@@ -51,6 +61,9 @@ async function api(path, options = {}) {
   const metodo = (options.method || "GET").toUpperCase();
   if (metodo !== "GET" && path.includes("/api/municipios")) {
     _munCache = { em: 0, dados: null };
+  }
+  if (metodo !== "GET" && path.includes("/api/aplicadores")) {
+    _aplListaCache = { em: 0, dados: null };
   }
   return data;
 }
@@ -156,7 +169,19 @@ $("#fechar-drawer").addEventListener("click", fecharDrawer);
 $("#drawer-fundo").addEventListener("click", fecharDrawer);
 
 async function abrirVaga(vagaId) {
-  const data = await api(`/api/vagas/${vagaId}/candidatos`);
+  $("#drawer-kicker").textContent = "Quadro";
+  $("#drawer-titulo").textContent = "Carregando…";
+  $("#drawer-corpo").innerHTML = "<p class='escola-meta'>Buscando quem pode entrar nesta vaga.</p>";
+  $("#drawer").classList.remove("hidden");
+  $("#drawer-fundo").classList.remove("hidden");
+  $("#drawer").setAttribute("aria-hidden", "false");
+  let data;
+  try {
+    data = await api(`/api/vagas/${vagaId}/candidatos`);
+  } catch (err) {
+    $("#drawer-corpo").innerHTML = `<p>Não deu para abrir a vaga: ${escHtml(err.message)}</p>`;
+    return;
+  }
   const v = data.vaga;
   $("#drawer-kicker").textContent = `${tit(v.municipio_nome)} · ${v.turno}`;
   $("#drawer-titulo").textContent = v.serie;
@@ -204,9 +229,6 @@ async function abrirVaga(vagaId) {
     <h3>Quem pode entrar</h3>
     <div id="lista-cands">${cands}</div>
   `;
-  $("#drawer").classList.remove("hidden");
-  $("#drawer-fundo").classList.remove("hidden");
-  $("#drawer").setAttribute("aria-hidden", "false");
 
   const dataEscolhida = () => $("#vaga-data")?.value || null;
 
@@ -655,8 +677,21 @@ function atualizarContagemAlocar() {
 
 async function abrirPainelAlocar() {
   if (!state.municipioId) return;
-  const lista = await api("/api/aplicadores");
+  const mun = munNomeAtual();
+  $("#painel-alocar").innerHTML = `
+    <section class="panel painel-alocar">
+      <h2>Quem entra em ${escHtml(mun)}</h2>
+      <p class="escola-meta">Carregando a lista de aplicadores…</p>
+    </section>`;
+  let lista;
+  try {
+    lista = await apiAplicadoresLista();
+  } catch (err) {
+    $("#painel-alocar").innerHTML = `<section class="panel"><p>Não deu para abrir a lista: ${escHtml(err.message)}</p></section>`;
+    return;
+  }
   if (!lista.length) {
+    $("#painel-alocar").innerHTML = "";
     alert("Crie os números de aplicador antes de alocar.");
     return;
   }
