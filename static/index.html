@@ -4,61 +4,92 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SAETO · Aplicação SRE Gurupi</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,520;9..144,650&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=win98" />
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-kicker">SRE Gurupi · 2026</span>
-      <strong>SAETO Aplicação</strong>
+    <div class="win-title">
+      <span class="win-icon" aria-hidden="true"></span>
+      <span>SAETO Aplicação</span>
+      <span class="win-controls" aria-hidden="true">
+        <span class="win-ctrl">_</span>
+        <span class="win-ctrl">□</span>
+        <span class="win-ctrl close">×</span>
+      </span>
     </div>
-    <nav>
-      <button class="nav-btn ativo" data-view="resumo">Visão geral</button>
-      <button class="nav-btn" data-view="cadastro">Cadastros</button>
-      <button class="nav-btn" data-view="quadro">Quadro de aplicação</button>
-      <button class="nav-btn" data-view="campo">Acompanhamento</button>
-      <button class="nav-btn" data-view="aplicadores">Aplicadores</button>
-      <button class="nav-btn" data-view="escolas">Escolas</button>
-    </nav>
-    <p class="sidebar-note">Monte a escala como um horário escolar: o sistema sugere, você ajusta. Choque de turno é bloqueado.</p>
+    <div class="sidebar-body">
+      <div class="brand">
+        <span class="brand-kicker">SRE Gurupi · 2026</span>
+        <strong>Menu principal</strong>
+      </div>
+      <nav>
+        <button class="nav-btn ativo" data-view="resumo">Visão geral</button>
+        <button class="nav-btn" data-view="cadastro">Cadastros</button>
+        <button class="nav-btn" data-view="quadro">Quadro de aplicação</button>
+        <button class="nav-btn" data-view="campo">Acompanhamento</button>
+        <button class="nav-btn" data-view="aplicadores">Aplicadores</button>
+        <button class="nav-btn" data-view="escolas">Escolas</button>
+      </nav>
+      <p class="sidebar-note">Monte a escala como um horário escolar: o sistema sugere, você ajusta. Choque de turno é bloqueado.</p>
+    </div>
   </aside>
 
   <main>
-    <header class="topbar">
-      <div>
-        <h1 id="titulo-pagina">Visão geral</h1>
-        <p id="subtitulo-pagina">Demanda, ocupação e conflitos da previsão SAETO.</p>
-      </div>
-      <div class="top-actions">
-        <input type="file" id="arquivo-planilha" accept=".xlsx,.xlsm" hidden />
-        <button type="button" class="btn gold" id="btn-enviar-planilha">Enviar planilha</button>
-        <button type="button" class="btn ghost" id="btn-reimportar">Reimportar a da pasta</button>
-      </div>
-    </header>
+    <div class="win-title">
+      <span class="win-icon" aria-hidden="true"></span>
+      <span id="titulo-janela">Visão geral — SAETO</span>
+      <span class="win-controls" aria-hidden="true">
+        <span class="win-ctrl">_</span>
+        <span class="win-ctrl">□</span>
+        <span class="win-ctrl close">×</span>
+      </span>
+    </div>
+    <div class="main-body">
+      <header class="topbar">
+        <div>
+          <h1 id="titulo-pagina">Visão geral</h1>
+          <p id="subtitulo-pagina">Demanda, ocupação e conflitos da previsão SAETO.</p>
+        </div>
+        <div class="top-actions">
+          <input type="file" id="arquivo-planilha" accept=".xlsx,.xlsm" hidden />
+          <button type="button" class="btn gold" id="btn-enviar-planilha">Enviar planilha</button>
+          <button type="button" class="btn ghost" id="btn-reimportar">Reimportar a da pasta</button>
+        </div>
+      </header>
 
-    <section id="view-resumo" class="view"></section>
-    <section id="view-quadro" class="view hidden"></section>
-    <section id="view-campo" class="view hidden"></section>
-    <section id="view-cadastro" class="view hidden"></section>
-    <section id="view-aplicadores" class="view hidden"></section>
-    <section id="view-escolas" class="view hidden"></section>
+      <section id="view-resumo" class="view"></section>
+      <section id="view-quadro" class="view hidden"></section>
+      <section id="view-campo" class="view hidden"></section>
+      <section id="view-cadastro" class="view hidden"></section>
+      <section id="view-aplicadores" class="view hidden"></section>
+      <section id="view-escolas" class="view hidden"></section>
+    </div>
   </main>
 
   <aside id="drawer" class="drawer hidden" aria-hidden="true">
-    <div class="drawer-head">
-      <div>
-        <p class="kicker" id="drawer-kicker">Vaga</p>
-        <h2 id="drawer-titulo">Alocar aplicador</h2>
-      </div>
-      <button type="button" class="icon-btn" id="fechar-drawer" aria-label="Fechar">×</button>
+    <div class="win-title">
+      <span class="win-icon" aria-hidden="true"></span>
+      <span class="win-title-text">
+        <span id="drawer-kicker">Vaga</span>
+        <span id="drawer-titulo">Alocar aplicador</span>
+      </span>
+      <button type="button" class="win-ctrl close" id="fechar-drawer" aria-label="Fechar">×</button>
     </div>
-    <div id="drawer-corpo"></div>
+    <div class="drawer-body">
+      <div id="drawer-corpo"></div>
+    </div>
   </aside>
   <div id="drawer-fundo" class="drawer-fundo hidden"></div>
 
-  <script src="/static/app.js"></script>
+  <footer class="taskbar">
+    <button type="button" class="start-btn" tabindex="-1">
+      <span class="start-logo" aria-hidden="true"></span>
+      Iniciar
+    </button>
+    <span class="task-btn ativo">SAETO Aplicação</span>
+    <span class="tray"><span id="relogio">00:00</span></span>
+  </footer>
+
+  <script src="/static/app.js?v=win98"></script>
 </body>
 </html>

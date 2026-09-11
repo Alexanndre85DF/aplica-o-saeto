@@ -36,6 +36,9 @@ async function api(path, options = {}) {
 function titulo(h1, p) {
   $("#titulo-pagina").textContent = h1;
   $("#subtitulo-pagina").textContent = p;
+  const janela = $("#titulo-janela");
+  if (janela) janela.textContent = `${h1} — SAETO`;
+  document.title = `${h1} · SAETO SRE Gurupi`;
 }
 
 function fmtData(iso) {
@@ -170,7 +173,7 @@ async function abrirVaga(vagaId) {
     </label>
     <button class="btn ghost" id="btn-liberar">Tirar aplicador (volta para Sem data)</button>
     <button class="btn warn" id="btn-excluir-vaga">Apagar turma do quadro</button>
-    <h3 style="font-family:Fraunces,serif">Quem pode entrar</h3>
+    <h3>Quem pode entrar</h3>
     <div id="lista-cands">${cands}</div>
   `;
   $("#drawer").classList.remove("hidden");
@@ -1447,5 +1450,16 @@ async function carregarCadastro() {
     };
   }
 }
+
+function tickRelogio() {
+  const el = $("#relogio");
+  if (!el) return;
+  el.textContent = new Date().toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+tickRelogio();
+setInterval(tickRelogio, 10000);
 
 mostrarView("resumo");

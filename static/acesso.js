@@ -108,6 +108,17 @@ async function carregarPainel() {
   });
 }
 
+function tickRelogio() {
+  const el = document.getElementById("relogio");
+  if (!el) return;
+  el.textContent = new Date().toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+tickRelogio();
+setInterval(tickRelogio, 10000);
+
 req("/api/acesso/eu")
   .then(() => carregarPainel())
   .catch(() => {

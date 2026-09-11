@@ -4,42 +4,60 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Meu acesso · SAETO SRE Gurupi</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,520;9..144,650&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/acesso.css" />
+  <link rel="stylesheet" href="/static/acesso.css?v=win98" />
 </head>
 <body>
   <main class="portal">
-    <header class="portal-brand">
-      <span>SRE Gurupi · SAETO 2026</span>
-      <strong>Acesso do aplicador</strong>
-    </header>
-
-    <section id="tela-login" class="card">
-      <h1>Entre com seu CPF</h1>
-      <p>Use o link que a SRE enviou e o CPF cadastrado. Você verá só as suas escolas e datas.</p>
-      <form id="form-login">
-        <label>CPF
-          <input id="cpf" inputmode="numeric" autocomplete="username" placeholder="000.000.000-00" maxlength="14" required />
-        </label>
-        <p id="erro-login" class="erro hidden"></p>
-        <button type="submit">Entrar</button>
-      </form>
-    </section>
-
-    <section id="tela-painel" class="hidden">
-      <div class="card cabeca">
-        <div>
-          <p class="kicker" id="codigo-apl"></p>
-          <h1 id="nome-apl"></h1>
-          <p id="cpf-apl"></p>
-        </div>
-        <button type="button" class="ghost" id="btn-sair">Sair</button>
+    <section class="win">
+      <div class="win-title">
+        <span class="win-icon" aria-hidden="true"></span>
+        <span>Acesso do aplicador — SAETO</span>
+        <span class="win-controls" aria-hidden="true">
+          <span class="win-ctrl">_</span>
+          <span class="win-ctrl">□</span>
+          <span class="win-ctrl close">×</span>
+        </span>
       </div>
-      <div id="lista-apps"></div>
+      <div class="win-body">
+        <header class="portal-brand">
+          <span>SRE Gurupi · SAETO 2026</span>
+          <strong>Acesso do aplicador</strong>
+        </header>
+
+        <section id="tela-login" class="card">
+          <h1>Entre com seu CPF</h1>
+          <p>Use o link que a SRE enviou e o CPF cadastrado. Você verá só as suas escolas e datas.</p>
+          <form id="form-login">
+            <label>CPF
+              <input id="cpf" inputmode="numeric" autocomplete="username" placeholder="000.000.000-00" maxlength="14" required />
+            </label>
+            <p id="erro-login" class="erro hidden"></p>
+            <button type="submit">Entrar</button>
+          </form>
+        </section>
+
+        <section id="tela-painel" class="hidden">
+          <div class="card cabeca">
+            <div>
+              <p class="kicker" id="codigo-apl"></p>
+              <h1 id="nome-apl"></h1>
+              <p id="cpf-apl"></p>
+            </div>
+            <button type="button" class="ghost" id="btn-sair">Sair</button>
+          </div>
+          <div id="lista-apps"></div>
+        </section>
+      </div>
     </section>
   </main>
-  <script src="/static/acesso.js?v=turma2"></script>
+  <footer class="taskbar">
+    <button type="button" class="start-btn" tabindex="-1">
+      <span class="start-logo" aria-hidden="true"></span>
+      Iniciar
+    </button>
+    <span class="task-btn ativo">Acesso do aplicador</span>
+    <span class="tray"><span id="relogio">00:00</span></span>
+  </footer>
+  <script src="/static/acesso.js?v=win98"></script>
 </body>
 </html>
