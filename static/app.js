@@ -1040,8 +1040,8 @@ async function carregarAplicadores() {
     <section class="panel" style="margin-bottom:16px">
       <h2>Criar números de aplicador</h2>
       <p class="escola-meta" style="margin-bottom:12px">
-        Informe quantos quer incluir. Se já existem ${maxN}, os próximos começam em ${String(maxN + 1).padStart(2, "0")}.
-        Depois você aloca no quadro e associa o nome a cada número.
+        Informe quantos quer incluir. Números que faltam (se alguém apagou o 03, por exemplo) voltam primeiro; depois segue o próximo livre.
+        O número do cronograma permanece. Para trocar a pessoa, use <b>Limpar nome</b> e vincule outra.
       </p>
       <form id="form-lote" class="form-grid">
         <label class="campo">Quantidade
@@ -1099,7 +1099,7 @@ async function carregarAplicadores() {
         method: "POST",
         body: JSON.stringify({ quantidade: qtd }),
       });
-      alert(`Criados Aplicador ${String(r.inicio).padStart(2, "0")} até Aplicador ${String(r.fim).padStart(2, "0")} (${r.quantidade}).`);
+      alert(`Criados Aplicador ${String(r.inicio).padStart(2, "0")} até Aplicador ${String(r.fim).padStart(2, "0")} (${r.quantidade}). Números que faltavam na ordem entram primeiro.`);
       carregarAplicadores();
     } catch (err) {
       alert(err.message);
@@ -1154,7 +1154,10 @@ async function carregarAplicadores() {
           }</td>
           <td style="white-space:nowrap">
             <button class="btn sm" data-salvar="${a.id}">Salvar</button>
-            <button class="btn sm warn" data-excluir="${a.id}" data-nome="${escHtml(a.identificado ? a.nome : a.codigo)}" data-carga="${a.carga}">Excluir</button>
+            ${a.identificado
+              ? `<button class="btn sm ghost" data-limpar="${a.id}" data-nome="${escHtml(a.nome)}">Limpar nome</button>`
+              : `<button class="btn sm warn" data-excluir="${a.id}" data-nome="${escHtml(a.codigo)}" data-carga="${a.carga}">Apagar nº</button>`
+            }
           </td>
         </tr>`;
       })
@@ -1184,13 +1187,28 @@ async function carregarAplicadores() {
         const nome = $(`.nome-apl[data-id="${id}"]`).value;
         const cpf = $(`.cpf-apl[data-id="${id}"]`).value;
         if (!nome) {
-          alert("Informe o nome.");
-          return;
+          if (!confirm("Sem nome: este número volta a ficar só como aplicador, para vincular outra pessoa depois. A escala no quadro permanece. Continuar?")) return;
         }
         try {
           await api(`/api/aplicadores/${id}`, {
             method: "PATCH",
             body: JSON.stringify({ nome, cpf }),
+          });
+          carregarAplicadores();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+    $$("[data-limpar]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.limpar;
+        const nome = btn.dataset.nome || "esta pessoa";
+        if (!confirm(`Tirar ${nome} deste número? Ele volta a ficar só como aplicador. A escala no quadro permanece. Depois você vincula outra pessoa.`)) return;
+        try {
+          await api(`/api/aplicadores/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ nome: "" }),
           });
           carregarAplicadores();
         } catch (err) {
@@ -1204,8 +1222,8 @@ async function carregarAplicadores() {
         const nome = btn.dataset.nome || "este aplicador";
         const carga = Number(btn.dataset.carga) || 0;
         const aviso = carga
-          ? `${nome} está em ${carga} turma(s). Elas voltam sem aplicador (a data da escola permanece). Excluir mesmo?`
-          : `Excluir ${nome}? Esse número some da lista.`;
+          ? `${nome} está em ${carga} turma(s). Apagar o número some da lista e as turmas ficam vagas. Se só quer trocar a pessoa, cancele e use Limpar nome. Apagar o número mesmo?`
+          : `Apagar ${nome} da lista? O número some (fica um furo na ordem). Para só tirar um nome, use Limpar nome.`;
         if (!confirm(aviso)) return;
         try {
           await api(`/api/aplicadores/${id}`, { method: "DELETE" });

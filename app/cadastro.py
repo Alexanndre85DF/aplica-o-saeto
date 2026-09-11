@@ -267,14 +267,19 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
     from .db import sincronizar_sequencias
 
     sincronizar_sequencias(conn)
-    max_n = 0
+    usados = set()
     for r in conn.execute("SELECT codigo, numero FROM aplicadores"):
         n = r["numero"] if r["numero"] is not None else numero_do_codigo(r["codigo"])
-        if n and n > max_n:
-            max_n = n
-    inicio = max_n + 1
+        if n:
+            usados.add(int(n))
+    numeros = []
+    n = 1
+    while len(numeros) < qtd:
+        if n not in usados:
+            numeros.append(n)
+        n += 1
     criados = []
-    for n in range(inicio, inicio + qtd):
+    for n in numeros:
         codigo = codigo_do_numero(n)
         if conn.execute("SELECT id FROM aplicadores WHERE codigo = ?", (codigo,)).fetchone():
             continue
@@ -304,6 +309,7 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
             else:
                 raise ValueError("Não deu para criar o aplicador: " + str(exc)) from exc
         criados.append({"numero": n, "codigo": codigo})
+        usados.add(n)
     if not criados:
         raise ValueError("Esses números já existem.")
     return {
@@ -430,6 +436,26 @@ def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict
 
     if cpf_n:
         garantir_token_acesso(conn, aplicador_id)
+    return dict(
+        conn.execute("SELECT * FROM aplicadores WHERE id = ?", (aplicador_id,)).fetchone()
+    )
+
+
+def desvincular_pessoa(conn, aplicador_id: int) -> dict:
+    atual = conn.execute(
+        "SELECT * FROM aplicadores WHERE id = ?", (aplicador_id,)
+    ).fetchone()
+    if not atual:
+        raise LookupError("Aplicador não encontrado.")
+    numero = atual["numero"] if atual["numero"] is not None else numero_do_codigo(atual["codigo"])
+    codigo = atual["codigo"] or (codigo_do_numero(int(numero)) if numero else "Aplicador")
+    conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
+    conn.execute(
+        """UPDATE aplicadores
+           SET nome = ?, cpf = NULL, acesso_token = NULL
+           WHERE id = ?""",
+        (codigo, aplicador_id),
+    )
     return dict(
         conn.execute("SELECT * FROM aplicadores WHERE id = ?", (aplicador_id,)).fetchone()
     )

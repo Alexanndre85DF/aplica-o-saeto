@@ -39,6 +39,7 @@ from .cadastro import (
     atualizar_municipio,
     formatar_cpf,
     vincular_pessoa,
+    desvincular_pessoa,
     _eh_placeholder,
     criar_escola,
     criar_municipio,
@@ -599,6 +600,11 @@ def editar_aplicador(aplicador_id: int, body: AplicadorBody):
         ).fetchone()
         if not atual:
             raise HTTPException(404, "Aplicador não encontrado.")
+        if body.nome is not None and not str(body.nome).strip():
+            try:
+                return desvincular_pessoa(conn, aplicador_id)
+            except Exception as exc:
+                _cadastro_erro(exc)
         nome = body.nome if body.nome is not None else atual["nome"]
         ativo = atual["ativo"] if body.ativo is None else (1 if body.ativo else 0)
         try:
