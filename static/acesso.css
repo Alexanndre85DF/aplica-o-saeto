@@ -1,0 +1,90 @@
+:root {
+  --ink: #1b1710;
+  --soft: #5c5346;
+  --paper: #f4efe4;
+  --pine: #1e4a38;
+  --gold: #c27b1a;
+  --line: #d7cdba;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Manrope, sans-serif;
+  background:
+    radial-gradient(900px 400px at 100% -10%, #e7d7ae 0%, transparent 50%),
+    var(--paper);
+  color: var(--ink);
+}
+.portal { max-width: 640px; margin: 0 auto; padding: 28px 18px 64px; }
+.portal-brand span {
+  display: block;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--soft);
+}
+.portal-brand strong {
+  font-family: Fraunces, serif;
+  font-size: 28px;
+}
+.card {
+  background: #fffaf0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px;
+  margin-top: 22px;
+  box-shadow: 0 16px 40px rgba(40, 28, 12, 0.1);
+}
+.card h1 { font-family: Fraunces, serif; margin: 0 0 8px; font-size: 28px; }
+.card p { color: var(--soft); }
+label { display: flex; flex-direction: column; gap: 8px; font-weight: 700; margin: 18px 0; }
+input {
+  font: inherit;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  font-size: 18px;
+}
+button {
+  font: inherit;
+  font-weight: 700;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: var(--pine);
+  color: #f6f0e4;
+  cursor: pointer;
+  width: 100%;
+}
+button.ghost {
+  width: auto;
+  background: transparent;
+  color: var(--pine);
+  border: 1px solid var(--pine);
+}
+.cabeca { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.kicker { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; }
+.app {
+  background: #fffaf0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  margin-top: 12px;
+}
+.app.feita { opacity: 0.72; }
+.app b { display: block; font-size: 18px; }
+.app .meta { color: var(--soft); font-size: 14px; margin: 6px 0 12px; }
+.chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #ffedd5;
+  color: #b45309;
+}
+.chip.ok { background: #ccfbf1; color: #0f766e; }
+.erro { color: #9f1239; font-weight: 700; }
+.hidden { display: none !important; }
+.vazio { margin-top: 18px; color: var(--soft); }
