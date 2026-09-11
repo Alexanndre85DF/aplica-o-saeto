@@ -908,7 +908,7 @@ async function carregarAplicadores() {
             <th>CPF</th>
             <th>Carga</th>
             <th>Acesso</th>
-            <th></th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody id="tb-apl"></tbody>
@@ -1001,7 +1001,10 @@ async function carregarAplicadores() {
               ? `<button class="btn sm ghost" data-link="${escHtml(a.acesso_token)}">Copiar link</button>`
               : "<span class='escola-meta'>Cadastre o CPF</span>"
           }</td>
-          <td><button class="btn sm" data-salvar="${a.id}">Salvar</button></td>
+          <td style="white-space:nowrap">
+            <button class="btn sm" data-salvar="${a.id}">Salvar</button>
+            <button class="btn sm warn" data-excluir="${a.id}" data-nome="${escHtml(a.identificado ? a.nome : a.codigo)}" data-carga="${a.carga}">Excluir</button>
+          </td>
         </tr>`;
       })
       .join("");
@@ -1038,6 +1041,23 @@ async function carregarAplicadores() {
             method: "PATCH",
             body: JSON.stringify({ nome, cpf }),
           });
+          carregarAplicadores();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+    $$("[data-excluir]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.excluir;
+        const nome = btn.dataset.nome || "este aplicador";
+        const carga = Number(btn.dataset.carga) || 0;
+        const aviso = carga
+          ? `${nome} está em ${carga} turma(s). Elas voltam sem aplicador (a data da escola permanece). Excluir mesmo?`
+          : `Excluir ${nome}? Esse número some da lista.`;
+        if (!confirm(aviso)) return;
+        try {
+          await api(`/api/aplicadores/${id}`, { method: "DELETE" });
           carregarAplicadores();
         } catch (err) {
           alert(err.message);

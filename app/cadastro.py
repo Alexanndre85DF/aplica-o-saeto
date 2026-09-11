@@ -416,13 +416,12 @@ def excluir_aplicador(conn, aplicador_id: int) -> None:
     atual = conn.execute("SELECT id FROM aplicadores WHERE id = ?", (aplicador_id,)).fetchone()
     if not atual:
         raise LookupError("Aplicador não encontrado.")
-    n = conn.execute(
-        "SELECT COUNT(*) n FROM vagas WHERE aplicador_id = ?", (aplicador_id,)
-    ).fetchone()["n"]
-    if n:
-        raise ValueError(
-            f"Não dá para excluir: ainda está em {n} aplicação(ões). Libere as vagas antes."
-        )
+    conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
+    conn.execute(
+        """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL
+           WHERE aplicador_id = ?""",
+        (aplicador_id,),
+    )
     conn.execute("DELETE FROM aplicadores WHERE id = ?", (aplicador_id,))
 
 

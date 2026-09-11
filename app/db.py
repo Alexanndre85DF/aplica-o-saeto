@@ -332,11 +332,17 @@ def _trocar_placeholders(sql: str) -> str:
 
 
 def _url_postgres(url: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
-    if "sslmode=" not in url.lower():
-        url += ("&" if "?" in url else "?") + "sslmode=require"
-    return url
+    parsed = urlparse(url)
+    permitidos = {"sslmode", "connect_timeout", "options"}
+    query = {k: v for k, v in parse_qsl(parsed.query) if k.lower() in permitidos}
+    if "sslmode" not in {k.lower() for k in query}:
+        query["sslmode"] = "require"
+    limpa = parsed._replace(query=urlencode(query))
+    return urlunparse(limpa)
 
 
 def connect():
