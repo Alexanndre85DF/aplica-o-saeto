@@ -181,8 +181,5 @@ def eh_segundo_ano_dia2(serie: str) -> bool:
 
 
 def turnos_sobrepoem(a: str, b: str) -> bool:
-    if a == b:
-        return True
-    if "INTEGRAL" in (a, b) and {a, b} & {"MATUTINO", "VESPERTINO", "INTEGRAL"}:
-        return a == b
-    return False
+    """Só o mesmo turno se sobrepõe. Integral conta como um turno e não fecha manhã, tarde nem noite."""
+    return (a or "") == (b or "")

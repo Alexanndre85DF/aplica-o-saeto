@@ -10,6 +10,7 @@ from .regras import (
     eh_segundo_ano_dia1,
     eh_segundo_ano_dia2,
     serie_par_segundo_ano,
+    turnos_sobrepoem,
 )
 
 
@@ -43,6 +44,7 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
     problemas = []
     mun_atual = vaga.get("municipio_id")
     mesma_data = bool(vaga.get("data"))
+    no_mesmo_dia = 0
     for o in outros:
         if not mesma_data or not o["data"]:
             if o["municipio_id"] != mun_atual:
@@ -54,18 +56,39 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
                     }
                 )
             continue
-        if o["data"] == vaga["data"] and o["turno"] == vaga["turno"] and o["escola_id"] != vaga["escola_id"]:
+        if o["data"] != vaga["data"]:
+            if o["municipio_id"] != mun_atual:
+                problemas.append(
+                    {
+                        "tipo": "municipio_outro",
+                        "grau": "aviso",
+                        "mensagem": f"Também alocado em {o['municipio_nome']}.",
+                    }
+                )
+            continue
+        no_mesmo_dia += 1
+        if turnos_sobrepoem(o["turno"], vaga["turno"]):
+            if o["escola_id"] != vaga["escola_id"]:
+                msg = (
+                    f"Choque: já está em {o['escola_nome']} "
+                    f"({o['turno'].title()}) neste turno."
+                )
+            else:
+                outra = o.get("serie") or "outra turma"
+                if o.get("turma"):
+                    outra = f"{outra} — {o['turma']}"
+                msg = (
+                    f"Choque: já está em {outra} nesta escola "
+                    f"({o['turno'].title()}) neste turno."
+                )
             problemas.append(
                 {
                     "tipo": "choque",
                     "grau": "choque",
-                    "mensagem": (
-                        f"Choque: já está em {o['escola_nome']} "
-                        f"({o['turno'].title()}) no mesmo dia."
-                    ),
+                    "mensagem": msg,
                 }
             )
-        elif o["data"] == vaga["data"] and o["municipio_id"] != mun_atual:
+        elif o["municipio_id"] != mun_atual:
             problemas.append(
                 {
                     "tipo": "municipio_mesmo_dia",
@@ -73,40 +96,24 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
                     "mensagem": f"Já está em {o['municipio_nome']} neste dia.",
                 }
             )
-        elif o["municipio_id"] != mun_atual:
-            problemas.append(
-                {
-                    "tipo": "municipio_outro",
-                    "grau": "aviso",
-                    "mensagem": f"Também alocado em {o['municipio_nome']}.",
-                }
-            )
-        elif (
-            o["data"] == vaga["data"]
-            and o["escola_id"] != vaga["escola_id"]
-            and {o["turno"], vaga["turno"]} == {"MATUTINO", "VESPERTINO"}
-        ):
+        elif o["escola_id"] != vaga["escola_id"]:
             problemas.append(
                 {
                     "tipo": "dois_turnos",
                     "grau": "aviso",
                     "mensagem": (
-                        f"Manhã e tarde em escolas diferentes: {o['escola_nome']}."
+                        f"{o['turno'].title()} em outra escola no mesmo dia: {o['escola_nome']}."
                     ),
                 }
             )
-        elif (
-            o["data"] == vaga["data"]
-            and "INTEGRAL" in (o["turno"], vaga["turno"])
-            and o["turno"] != vaga["turno"]
-        ):
-            problemas.append(
-                {
-                    "tipo": "integral",
-                    "grau": "aviso",
-                    "mensagem": "Turno integral no mesmo dia de outro turno.",
-                }
-            )
+    if mesma_data and no_mesmo_dia >= 3:
+        problemas.append(
+            {
+                "tipo": "limite_dia",
+                "grau": "choque",
+                "mensagem": "Já tem 3 aplicações neste dia (manhã, tarde e noite). Integral conta como um turno.",
+            }
+        )
     return problemas
 
 
@@ -228,20 +235,25 @@ def contar_choques(conn) -> int:
         SELECT COUNT(DISTINCT v1.id) AS n
         FROM vagas v1
         JOIN escolas e1 ON e1.id = v1.escola_id
-        JOIN vagas v2 ON v2.aplicador_id = v1.aplicador_id AND v2.id != v1.id
-        JOIN escolas e2 ON e2.id = v2.escola_id
         WHERE v1.aplicador_id IS NOT NULL
           AND v1.data IS NOT NULL
-          AND v2.data = v1.data
           AND (
-            (v1.turno = v2.turno AND v1.escola_id != v2.escola_id)
-            OR (e1.municipio_id != e2.municipio_id)
+            EXISTS (
+                SELECT 1 FROM vagas v2
+                JOIN escolas e2 ON e2.id = v2.escola_id
+                WHERE v2.aplicador_id = v1.aplicador_id
+                  AND v2.id != v1.id
+                  AND v2.data = v1.data
+                  AND (v1.turno = v2.turno OR e1.municipio_id != e2.municipio_id)
+            )
+            OR (
+                SELECT COUNT(*) FROM vagas v3
+                WHERE v3.aplicador_id = v1.aplicador_id AND v3.data = v1.data
+            ) >= 4
           )
         """
     ).fetchone()
-    if not row:
-        return 0
-    return int(row["n"] or 0)
+    return int((row["n"] if row else 0) or 0)
 
 
 def pode_alocar(conn, vaga_id: int, aplicador_id: int) -> dict:
@@ -398,7 +410,7 @@ def alocar(
     if not checagem["ok"] and not forcar:
         return {
             "ok": False,
-            "erro": "Choque de horário: este aplicador já está em outra escola neste turno.",
+            "erro": "Choque de horário: este aplicador já está em outra turma neste turno ou já tem 3 aplicações no dia.",
             "choques": checagem["choques"],
         }
 
