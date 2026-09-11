@@ -613,6 +613,26 @@ table.grade {
 .cand.selecionado { background: #dbeafe; outline: 1px dotted var(--title); }
 .cand small { display: block; color: var(--ink-soft); margin-top: 4px; }
 
+.painel-substituir {
+  margin: 12px 0 14px;
+  padding: 10px;
+  background: #fff;
+  box-shadow: var(--sunken);
+}
+.painel-substituir h3 { margin: 0 0 6px; font-size: 14px; }
+.painel-substituir #busca-subst {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0 0 10px;
+}
+#btn-substituir {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 0;
+}
+
 .periodo-box { margin-top: 10px; }
 .dias-chips {
   display: flex;

@@ -32,6 +32,7 @@ from .alocacao import (
     organizar,
     receber_prova,
     redistribuir_datas_municipio,
+    substituir_aplicador,
     _preencher_datas_faltantes,
 )
 from .cadastro import (
@@ -70,6 +71,11 @@ class AlocarBody(BaseModel):
     repetir_par: bool = True
     data: str | None = None
     forcar: bool = False
+
+
+class SubstituirBody(BaseModel):
+    aplicador_id: int
+    data: str | None = None
 
 
 class OrganizarBody(BaseModel):
@@ -873,22 +879,35 @@ def quadro(municipio_id: int):
 
 
 @app.get("/api/vagas/{vaga_id}/candidatos")
-def candidatos(vaga_id: int):
+def candidatos(vaga_id: int, data: str | None = None):
     with get_db() as conn:
         vaga = conn.execute(
             """SELECT v.*, e.nome AS escola_nome, e.rede, e.municipio_id,
-                      m.nome AS municipio_nome, vi.data_saida, vi.data_retorno
+                      m.nome AS municipio_nome, vi.data_saida, vi.data_retorno,
+                      a.codigo AS apl_codigo, a.nome AS apl_nome
                FROM vagas v
                JOIN escolas e ON e.id = v.escola_id
                JOIN municipios m ON m.id = e.municipio_id
                LEFT JOIN viagens vi ON vi.municipio_id = m.id
+               LEFT JOIN aplicadores a ON a.id = v.aplicador_id
                WHERE v.id = ?""",
             (vaga_id,),
         ).fetchone()
         if not vaga:
             raise HTTPException(404, "Vaga não encontrada.")
         d = enriquecer_vaga(conn, dict(vaga))
-        return {"vaga": d, "candidatos": candidatos_para_vaga(conn, vaga_id)}
+        if data:
+            d["data"] = data[:10]
+        return {"vaga": d, "candidatos": candidatos_para_vaga(conn, vaga_id, data)}
+
+
+@app.post("/api/vagas/{vaga_id}/substituir")
+def api_substituir(vaga_id: int, body: SubstituirBody):
+    with get_db() as conn:
+        resultado = substituir_aplicador(conn, vaga_id, body.aplicador_id, body.data)
+        if not resultado.get("ok"):
+            raise HTTPException(409, resultado.get("erro") or "Não foi possível substituir.")
+        return resultado
 
 
 @app.post("/api/vagas/{vaga_id}/alocar")

@@ -329,7 +329,7 @@ def checar_alocacao(vaga: dict, aplicador_id: int, agenda: dict, par_row=None) -
     }
 
 
-def candidatos_para_vaga(conn, vaga_id: int) -> list[dict]:
+def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[dict]:
     vaga = conn.execute(
         """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
            FROM vagas v
@@ -341,6 +341,9 @@ def candidatos_para_vaga(conn, vaga_id: int) -> list[dict]:
     if not vaga:
         return []
     vaga = dict(vaga)
+    if data:
+        vaga["data"] = data[:10]
+    dia = vaga.get("data")
 
     aplicadores = conn.execute(
         "SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo"
@@ -352,6 +355,10 @@ def candidatos_para_vaga(conn, vaga_id: int) -> list[dict]:
     for a in aplicadores:
         checagem = checar_alocacao(vaga, a["id"], agenda, par_row)
         slots = agenda.get(a["id"], [])
+        outros_no_dia = [
+            o for o in slots if o["id"] != vaga["id"] and dia and o.get("data") == dia
+        ]
+        selecionado = a["id"] == vaga.get("aplicador_id")
         lista.append(
             {
                 "id": a["id"],
@@ -362,7 +369,9 @@ def candidatos_para_vaga(conn, vaga_id: int) -> list[dict]:
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],
                 "avisos": checagem["avisos"],
-                "selecionado": a["id"] == vaga["aplicador_id"],
+                "selecionado": selecionado,
+                "aplicacoes_no_dia": len(outros_no_dia),
+                "livre_no_dia": bool(dia) and not selecionado and not outros_no_dia,
             }
         )
 
@@ -426,6 +435,67 @@ def alocar(
         "avisos": checagem["avisos"],
         "par_atualizado": par_atualizado,
         "forcado": bool(forcar and not checagem["ok"]),
+    }
+
+
+def substituir_aplicador(
+    conn, vaga_id: int, novo_aplicador_id: int, data: str | None = None
+) -> dict:
+    vaga = conn.execute(
+        """SELECT v.*, e.municipio_id
+           FROM vagas v JOIN escolas e ON e.id = v.escola_id WHERE v.id = ?""",
+        (vaga_id,),
+    ).fetchone()
+    if not vaga:
+        return {"ok": False, "erro": "Vaga não encontrada."}
+    vaga = dict(vaga)
+    atual_id = vaga.get("aplicador_id")
+    if not atual_id:
+        return {"ok": False, "erro": "Esta aplicação ainda não tem aplicador para substituir."}
+    dia = (data or vaga.get("data") or "")[:10] if (data or vaga.get("data")) else None
+    if not dia:
+        return {"ok": False, "erro": "Salve a data desta aplicação antes de substituir o aplicador."}
+    if novo_aplicador_id == atual_id:
+        return {"ok": False, "erro": "Escolha outro aplicador."}
+
+    novo = conn.execute(
+        "SELECT id, ativo FROM aplicadores WHERE id = ?",
+        (novo_aplicador_id,),
+    ).fetchone()
+    if not novo or not novo["ativo"]:
+        return {"ok": False, "erro": "Aplicador não encontrado ou inativo."}
+
+    ocupado = conn.execute(
+        """SELECT COUNT(*) AS n FROM vagas
+           WHERE aplicador_id = ? AND data = ? AND id != ?""",
+        (novo_aplicador_id, dia, vaga_id),
+    ).fetchone()
+    if int((ocupado["n"] if ocupado else 0) or 0) > 0:
+        return {"ok": False, "erro": "Este aplicador já tem aplicação neste dia."}
+
+    resultado = alocar(
+        conn,
+        vaga_id,
+        novo_aplicador_id,
+        repetir_par=False,
+        data=dia,
+        forcar=False,
+    )
+    if not resultado.get("ok"):
+        return resultado
+
+    conn.execute(
+        """UPDATE vagas
+           SET status = 'PREVISTA', finalizado_em = NULL, n_presentes = NULL
+           WHERE id = ? AND status = 'FINALIZADA'""",
+        (vaga_id,),
+    )
+    return {
+        "ok": True,
+        "substituido": True,
+        "anterior_id": atual_id,
+        "aplicador_id": novo_aplicador_id,
+        "data": dia,
     }
 
 

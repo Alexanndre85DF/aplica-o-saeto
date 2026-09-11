@@ -87,6 +87,11 @@ function nomeApl(a) {
   return a.nome || a.codigo || "Vago";
 }
 
+function rotuloCand(c) {
+  if (!c) return "Vago";
+  return c.nome && c.nome !== c.codigo ? `${c.nome} · ${c.codigo}` : (c.nome || c.codigo || "Vago");
+}
+
 function tit(s) {
   if (!s) return "";
   const mini = new Set(["do", "da", "de", "dos", "das", "e"]);
@@ -188,22 +193,25 @@ async function abrirVaga(vagaId) {
   const problemas = (v.problemas || [])
     .map((p) => `<li>${p.mensagem}</li>`)
     .join("");
-  const cands = data.candidatos
-    .map((c) => {
-      const motivo = c.ok
-        ? `${c.carga} aplicação(ões)${c.no_municipio ? " · já neste município" : ""}`
-        : (c.choques[0] && c.choques[0].mensagem) || "Indisponível";
-      const rotulo = c.nome && c.nome !== c.codigo ? `${c.nome} · ${c.codigo}` : c.nome;
-      return `<button class="cand ${c.ok ? "" : "choque"} ${c.selecionado ? "selecionado" : ""}"
-                data-id="${c.id}" data-ok="${c.ok ? "1" : "0"}">
-                <b>${rotulo}</b>
-                <small>${c.ok ? motivo : "Choque: " + motivo + " — clique para colocar mesmo assim"}</small>
-              </button>`;
-    })
-    .join("");
+  const atual = (data.candidatos || []).find((c) => c.selecionado);
+  const nomeAtual = atual
+    ? rotuloCand(atual)
+    : (v.apl_nome || v.apl_codigo || "o aplicador atual");
+  const htmlCand = (c) => {
+    const motivo = c.ok
+      ? `${c.carga} aplicação(ões)${c.no_municipio ? " · já neste município" : ""}`
+      : (c.choques[0] && c.choques[0].mensagem) || "Indisponível";
+    return `<button class="cand ${c.ok ? "" : "choque"} ${c.selecionado ? "selecionado" : ""}"
+              data-id="${c.id}" data-ok="${c.ok ? "1" : "0"}">
+              <b>${escHtml(rotuloCand(c))}</b>
+              <small>${c.ok ? motivo : "Choque: " + motivo + " — clique para colocar mesmo assim"}</small>
+            </button>`;
+  };
+  const cands = data.candidatos.map(htmlCand).join("");
   const dataPadrao = v.data || v.data_saida || "";
   const minData = v.data_saida || "";
   const maxData = v.data_retorno || v.data_saida || "";
+  const temAplicador = Boolean(v.aplicador_id);
   $("#drawer-corpo").innerHTML = `
     <p>${tit(v.escola_nome)}</p>
     <p>${badgeRede(v.rede)}</p>
@@ -224,8 +232,16 @@ async function abrirVaga(vagaId) {
       <input type="checkbox" id="repetir-par" checked />
       Repetir no Dia 1/Dia 2 do 2º ano, se houver
     </label>
+    ${temAplicador ? `<button class="btn gold" id="btn-substituir">Substituir aplicador</button>` : ""}
     <button class="btn ghost" id="btn-liberar">Tirar aplicador (volta para Sem data)</button>
     <button class="btn warn" id="btn-excluir-vaga">Apagar turma do quadro</button>
+    ${temAplicador ? `
+    <div id="painel-substituir" class="painel-substituir hidden">
+      <h3>Trocar ${escHtml(nomeAtual)}</h3>
+      <p class="escola-meta" id="subst-ajuda">Só quem não tem nenhuma aplicação neste dia. O aplicador atual fica livre nesta vaga.</p>
+      <input type="text" id="busca-subst" placeholder="Buscar número ou nome" autocomplete="off" />
+      <div id="lista-subst"></div>
+    </div>` : ""}
     <h3>Quem pode entrar</h3>
     <div id="lista-cands">${cands}</div>
   `;
@@ -298,6 +314,104 @@ async function abrirVaga(vagaId) {
         alert(err.message);
       }
     });
+  });
+
+  if (!temAplicador) return;
+
+  let candsAtuais = data.candidatos || [];
+
+  const pintarListaSubst = () => {
+    const lista = $("#lista-subst");
+    const ajuda = $("#subst-ajuda");
+    if (!lista) return;
+    const dia = dataEscolhida();
+    const busca = ($("#busca-subst")?.value || "").trim().toLowerCase();
+    if (!dia) {
+      if (ajuda) ajuda.textContent = "Salve a data desta aplicação para ver quem está livre neste dia.";
+      lista.innerHTML = `<p class="escola-meta">Informe a data no campo acima e clique em Salvar data, ou escolha o dia e abra a lista de novo.</p>`;
+      return;
+    }
+    const livres = candsAtuais.filter((c) => {
+      if (!c.livre_no_dia) return false;
+      if (!busca) return true;
+      const txt = `${c.nome || ""} ${c.codigo || ""}`.toLowerCase();
+      return txt.includes(busca);
+    });
+    if (ajuda) {
+      ajuda.textContent = `Só quem não tem nenhuma aplicação em ${fmtData(dia)}. ${nomeAtual} fica livre nesta vaga.`;
+    }
+    if (!livres.length) {
+      lista.innerHTML = `<p class="escola-meta">${busca ? "Ninguém com esse nome está livre neste dia." : `Ninguém está livre em ${fmtData(dia)}.`}</p>`;
+      return;
+    }
+    lista.innerHTML = livres
+      .map((c) => {
+        const extra = c.carga
+          ? `${c.carga} aplicação(ões) em outros dias${c.no_municipio ? " · já neste município" : ""}`
+          : "Ainda sem nenhuma aplicação";
+        return `<button type="button" class="cand" data-id="${c.id}">
+            <b>${escHtml(rotuloCand(c))}</b>
+            <small>Livre neste dia · ${extra}</small>
+          </button>`;
+      })
+      .join("");
+    $$("#lista-subst .cand").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const escolhido = candsAtuais.find((c) => String(c.id) === btn.dataset.id);
+        const nomeNovo = rotuloCand(escolhido);
+        if (!confirm(`Substituir ${nomeAtual} por ${nomeNovo} nesta aplicação de ${fmtData(dia)}?\n\n${nomeAtual} fica sem esta vaga e livre neste dia (se não tiver outra aplicação).`)) return;
+        try {
+          await api(`/api/vagas/${vagaId}/substituir`, {
+            method: "POST",
+            body: JSON.stringify({ aplicador_id: Number(btn.dataset.id), data: dia }),
+          });
+          fecharDrawer();
+          mostrarView("quadro");
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  };
+
+  const atualizarCandsDoDia = async () => {
+    const dia = dataEscolhida();
+    const qs = dia ? `?data=${encodeURIComponent(dia)}` : "";
+    const d = await api(`/api/vagas/${vagaId}/candidatos${qs}`);
+    candsAtuais = d.candidatos || [];
+  };
+
+  $("#btn-substituir").onclick = async () => {
+    const painel = $("#painel-substituir");
+    const dia = dataEscolhida();
+    if (!dia) {
+      alert("Informe a data desta aplicação para ver quem está livre neste dia.");
+      return;
+    }
+    const abrindo = painel.classList.contains("hidden");
+    if (abrindo) {
+      try {
+        await atualizarCandsDoDia();
+      } catch (err) {
+        alert(err.message);
+        return;
+      }
+      painel.classList.remove("hidden");
+      pintarListaSubst();
+      painel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else {
+      painel.classList.add("hidden");
+    }
+  };
+  $("#busca-subst")?.addEventListener("input", pintarListaSubst);
+  $("#vaga-data")?.addEventListener("change", async () => {
+    if ($("#painel-substituir")?.classList.contains("hidden")) return;
+    try {
+      await atualizarCandsDoDia();
+      pintarListaSubst();
+    } catch (err) {
+      alert(err.message);
+    }
   });
 }
 
