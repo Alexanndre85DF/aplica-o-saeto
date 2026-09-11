@@ -325,6 +325,38 @@ main { grid-column: 2; grid-row: 1; }
 .card.bad .value { color: var(--choque); }
 .card.ok .value { color: var(--ok); }
 
+.progresso-box { margin-bottom: 16px; }
+.progresso-box h2 { margin-bottom: 0; }
+.progresso-cabeca {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.progresso-cabeca strong {
+  font-size: 22px;
+  color: var(--title);
+}
+.progresso-trilha {
+  height: 22px;
+  background: #fff;
+  box-shadow: var(--sunken);
+  padding: 2px;
+}
+.progresso-barra {
+  height: 100%;
+  width: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    #000080 0 10px,
+    #1084d0 10px 12px
+  );
+  background-color: #000080;
+  transition: width 0.45s linear;
+}
+.progresso-box .escola-meta { margin: 8px 0 0; }
+
 .panel {
   background: var(--face);
   border: 0;
@@ -490,6 +522,7 @@ table.grade {
 }
 .item-campo b { display: block; }
 .item-campo .meta { color: var(--ink-soft); font-size: 13px; margin: 6px 0 10px; }
+.item-campo .chip { margin: 0 8px 8px 0; }
 @media (max-width: 980px) {
   .colunas-campo { grid-template-columns: 1fr; }
 }

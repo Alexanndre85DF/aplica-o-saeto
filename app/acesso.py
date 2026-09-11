@@ -89,6 +89,7 @@ def _publico(pessoa) -> dict:
 def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
     rows = conn.execute(
         """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+                  v.prova_recebida_em,
                   e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                   m.nome AS municipio, vi.data_saida, vi.data_retorno
            FROM vagas v
@@ -106,5 +107,6 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
         item["saida_fmt"] = fmt_data(item["data_saida"])
         item["retorno_fmt"] = fmt_data(item["data_retorno"])
         item["finalizada"] = item["status"] == "FINALIZADA"
+        item["prova_recebida"] = bool(item.get("prova_recebida_em"))
         lista.append(item)
     return lista

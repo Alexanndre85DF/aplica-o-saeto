@@ -255,7 +255,7 @@ def alocar(
 
     if aplicador_id is None and not data:
         conn.execute(
-            """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, data = NULL
+            """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, data = NULL, prova_recebida_em = NULL
                WHERE id = ?""",
             (vaga_id,),
         )
@@ -281,8 +281,8 @@ def alocar(
         }
 
     conn.execute(
-        "UPDATE vagas SET aplicador_id = ?, alocacao = ? WHERE id = ?",
-        (aplicador_id, "MANUAL", vaga_id),
+        "UPDATE vagas SET aplicador_id = ?, alocacao = ?, prova_recebida_em = CASE WHEN aplicador_id = ? THEN prova_recebida_em ELSE NULL END WHERE id = ?",
+        (aplicador_id, "MANUAL", aplicador_id, vaga_id),
     )
     par_atualizado = False
     if repetir_par:
@@ -309,7 +309,7 @@ def _espelhar_par(conn, vaga, aplicador_id: int | None, origem: str | None = "AU
         return False
     if aplicador_id is None:
         conn.execute(
-            """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, data = NULL
+            """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, data = NULL, prova_recebida_em = NULL
                WHERE id = ?""",
             (outra["id"],),
         )
@@ -317,8 +317,8 @@ def _espelhar_par(conn, vaga, aplicador_id: int | None, origem: str | None = "AU
     checagem = pode_alocar(conn, outra["id"], aplicador_id)
     if checagem["ok"] or origem == "MANUAL":
         conn.execute(
-            "UPDATE vagas SET aplicador_id = ?, alocacao = ? WHERE id = ?",
-            (aplicador_id, origem or "AUTO", outra["id"]),
+            "UPDATE vagas SET aplicador_id = ?, alocacao = ?, prova_recebida_em = CASE WHEN aplicador_id = ? THEN prova_recebida_em ELSE NULL END WHERE id = ?",
+            (aplicador_id, origem or "AUTO", aplicador_id, outra["id"]),
         )
         return True
     return False
@@ -493,7 +493,7 @@ def organizar(
             for r in conn.execute("SELECT id FROM municipios"):
                 redistribuir_datas_municipio(conn, r["id"])
         conn.execute(
-            f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL
+            f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
                 WHERE id IN (
                     SELECT v.id FROM vagas v
                     JOIN escolas e ON e.id = v.escola_id
@@ -509,7 +509,7 @@ def organizar(
                 _preencher_datas_faltantes(conn, r["id"])
         if nova_rodada:
             conn.execute(
-                f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL
+                f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
                     WHERE id IN (
                         SELECT v.id FROM vagas v
                         JOIN escolas e ON e.id = v.escola_id
@@ -609,8 +609,8 @@ def organizar(
             continue
 
         conn.execute(
-            "UPDATE vagas SET aplicador_id = ?, alocacao = ? WHERE id = ?",
-            (escolhido, "AUTO", vaga["id"]),
+            "UPDATE vagas SET aplicador_id = ?, alocacao = ?, prova_recebida_em = CASE WHEN aplicador_id = ? THEN prova_recebida_em ELSE NULL END WHERE id = ?",
+            (escolhido, "AUTO", escolhido, vaga["id"]),
         )
         alocadas += 1
         if eh_segundo_ano_dia1(vaga["serie"]):
@@ -649,3 +649,24 @@ def finalizar_vaga(conn, vaga_id: int, finalizada: bool) -> dict:
         (vaga_id,),
     )
     return {"ok": True, "status": "PREVISTA"}
+
+
+def receber_prova(conn, vaga_id: int, recebida: bool) -> dict:
+    vaga = conn.execute(
+        "SELECT id, aplicador_id FROM vagas WHERE id = ?", (vaga_id,)
+    ).fetchone()
+    if not vaga:
+        return {"ok": False, "erro": "Vaga não encontrada."}
+    if not vaga["aplicador_id"]:
+        return {"ok": False, "erro": "Esta aplicação ainda não tem aplicador."}
+    if recebida:
+        agora = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE vagas SET prova_recebida_em = ? WHERE id = ?",
+            (agora, vaga_id),
+        )
+        return {"ok": True, "prova_recebida": True, "prova_recebida_em": agora}
+    conn.execute(
+        "UPDATE vagas SET prova_recebida_em = NULL WHERE id = ?", (vaga_id,)
+    )
+    return {"ok": True, "prova_recebida": False}

@@ -6,6 +6,8 @@ const state = {
   filtroStatus: "TODAS",
   campoMun: "",
   campoData: "",
+  provaMun: "",
+  provaData: "",
   buscaAplicador: "",
   cadastroTab: "municipios",
   editMunId: null,
@@ -87,6 +89,7 @@ function mostrarView(view, extra = {}) {
   if (view === "resumo") carregarResumo();
   if (view === "quadro") carregarQuadro();
   if (view === "campo") carregarCampo();
+  if (view === "provas") carregarProvas();
   if (view === "cadastro") carregarCadastro();
   if (view === "aplicadores") carregarAplicadores();
   if (view === "escolas") carregarEscolas();
@@ -265,6 +268,12 @@ async function carregarResumo() {
   const r = await api("/api/resumo");
   const pct = r.vagas ? Math.round((r.ocupadas / r.vagas) * 100) : 0;
   const pendentes = Math.max(0, (r.ocupadas || 0) - (r.finalizadas || 0));
+  const feitas = r.finalizadas || 0;
+  const total = r.vagas || 0;
+  const pctBaixa = total ? (feitas / total) * 100 : 0;
+  const pctBaixaTxt = pctBaixa > 0 && pctBaixa < 10
+    ? pctBaixa.toFixed(1).replace(".", ",")
+    : String(Math.round(pctBaixa));
   $("#view-resumo").innerHTML = `
     <div class="cards">
       <article class="card"><div class="label">Vagas</div><div class="value">${r.vagas}</div></article>
@@ -272,6 +281,16 @@ async function carregarResumo() {
       <article class="card warn"><div class="label">Ainda no campo</div><div class="value">${pendentes}</div></article>
       <article class="card ok"><div class="label">Já aplicadas</div><div class="value">${r.finalizadas}</div></article>
     </div>
+    <section class="panel progresso-box">
+      <div class="progresso-cabeca">
+        <h2>Andamento da aplicação</h2>
+        <strong>${pctBaixaTxt}%</strong>
+      </div>
+      <div class="progresso-trilha" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pctBaixa)}">
+        <div class="progresso-barra" style="width:${pctBaixa.toFixed(2)}%"></div>
+      </div>
+      <p class="escola-meta">${feitas} de ${total} aplicações já receberam baixa no campo.</p>
+    </section>
     <div class="cards">
       <article class="card"><div class="label">Municípios</div><div class="value">${r.municipios}</div></article>
       <article class="card"><div class="label">Escolas</div><div class="value">${r.escolas}</div></article>
@@ -405,6 +424,82 @@ async function carregarCampo() {
         body: JSON.stringify({ finalizada: !feita }),
       });
       carregarCampo();
+    });
+  });
+}
+
+function cardProva(item, recebida) {
+  const quem = item.aplicador ? nomeApl(item.aplicador) : "Sem aplicador";
+  const hora = recebida && item.prova_recebida_em ? ` · recebida ${fmtHora(item.prova_recebida_em)}` : "";
+  const aplicada = item.status === "FINALIZADA" ? " · já aplicada" : "";
+  return `<article class="item-campo ${recebida ? "feita" : ""}">
+    <b>${tit(item.escola)}</b>
+    <div class="meta">
+      ${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno}<br />
+      ${item.serie}${item.turma ? " — " + item.turma : ""}${item.ordem > 1 ? " · " + item.ordem : ""} · ${quem}${hora}${aplicada}
+    </div>
+    <span class="chip ${recebida ? "ok" : "vago"}">Prova: ${recebida ? "recebida" : "pendente"}</span>
+    <button class="btn sm ${recebida ? "ghost" : "gold"}" data-prova="${item.id}" data-recebida="${recebida ? "1" : "0"}">
+      ${recebida ? "Desfazer recebimento" : "Recebido"}
+    </button>
+  </article>`;
+}
+
+async function carregarProvas() {
+  titulo("Recebimento de provas", "Controle da logística: cada aplicação alocada aparece aqui até a prova ser entregue ao aplicador.");
+  const municipios = await api("/api/municipios");
+  const qs = new URLSearchParams();
+  if (state.provaMun) qs.set("municipio_id", state.provaMun);
+  if (state.provaData) qs.set("data", state.provaData);
+  const d = await api(`/api/recebimento-provas?${qs.toString()}`);
+  const munOpts = [`<option value="">Todos os municípios</option>`]
+    .concat(municipios.map((m) => `<option value="${m.id}" ${String(m.id) === String(state.provaMun) ? "selected" : ""}>${tit(m.nome)}</option>`))
+    .join("");
+  const dataOpts = [`<option value="">Todos os dias</option>`]
+    .concat((d.datas || []).map((dt) => `<option value="${dt}" ${dt === state.provaData ? "selected" : ""}>${fmtData(dt)}</option>`))
+    .join("");
+  $("#view-provas").innerHTML = `
+    <div class="cards">
+      <article class="card warn"><div class="label">Prova pendente</div><div class="value">${d.contagem.pendentes}</div></article>
+      <article class="card ok"><div class="label">Prova recebida</div><div class="value">${d.contagem.recebidas}</div></article>
+      <article class="card"><div class="label">Alocadas</div><div class="value">${d.contagem.alocadas}</div></article>
+      <article class="card"><div class="label">No filtro</div><div class="value">${d.total}</div></article>
+    </div>
+    <div class="toolbar">
+      <select id="prova-mun">${munOpts}</select>
+      <select id="prova-data">${dataOpts}</select>
+      <button class="btn ghost" id="btn-atualizar-provas">Atualizar</button>
+    </div>
+    <div class="colunas-campo">
+      <section class="panel col-campo pendente">
+        <h2>Pendente <span class="chip vago">${d.contagem.pendentes}</span></h2>
+        <p class="escola-meta">Aplicador já alocado. Clique em Recebido quando entregar o material.</p>
+        ${d.pendentes.length ? d.pendentes.map((i) => cardProva(i, false)).join("") : "<p class='escola-meta'>Nenhuma prova pendente neste filtro.</p>"}
+      </section>
+      <section class="panel col-campo baixa">
+        <h2>Recebida <span class="chip ok">${d.contagem.recebidas}</span></h2>
+        <p class="escola-meta">O aplicador já vê “Prova: recebida” no acesso dele.</p>
+        ${d.recebidas.length ? d.recebidas.map((i) => cardProva(i, true)).join("") : "<p class='escola-meta'>Nenhuma prova recebida neste filtro.</p>"}
+      </section>
+    </div>
+  `;
+  $("#prova-mun").addEventListener("change", (e) => {
+    state.provaMun = e.target.value;
+    carregarProvas();
+  });
+  $("#prova-data").addEventListener("change", (e) => {
+    state.provaData = e.target.value;
+    carregarProvas();
+  });
+  $("#btn-atualizar-provas").onclick = () => carregarProvas();
+  $$("[data-prova]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ja = btn.dataset.recebida === "1";
+      await api(`/api/vagas/${btn.dataset.prova}/receber-prova`, {
+        method: "POST",
+        body: JSON.stringify({ recebida: !ja }),
+      });
+      carregarProvas();
     });
   });
 }

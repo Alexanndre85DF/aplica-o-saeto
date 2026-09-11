@@ -418,7 +418,7 @@ def excluir_aplicador(conn, aplicador_id: int) -> None:
         raise LookupError("Aplicador não encontrado.")
     conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
     conn.execute(
-        """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL
+        """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
            WHERE aplicador_id = ?""",
         (aplicador_id,),
     )

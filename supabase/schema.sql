@@ -11,6 +11,7 @@ alter table if exists vagas add column if not exists turma text;
 alter table if exists vagas add column if not exists n_alunos integer;
 alter table if exists vagas add column if not exists alocacao text;
 alter table if exists vagas add column if not exists finalizado_em text;
+alter table if exists vagas add column if not exists prova_recebida_em text;
 
 alter table if exists viagens add column if not exists dias_aplicacao text;
 

@@ -165,6 +165,7 @@ button.ghost {
   box-shadow: var(--sunken);
 }
 .chip.ok { background: #ccfbf1; color: var(--ok); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
 .erro { color: var(--choque); font-weight: 700; }
 .hidden { display: none !important; }
 .vazio { margin-top: 18px; color: var(--soft); }

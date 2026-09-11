@@ -25,6 +25,7 @@ TABELAS = [
         "turma",
         "n_alunos",
         "alocacao",
+        "prova_recebida_em",
     ]),
     ("sessoes_acesso", ["token", "aplicador_id", "criado_em", "expira_em"]),
     ("meta", ["chave", "valor"]),

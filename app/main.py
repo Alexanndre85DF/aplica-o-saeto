@@ -27,6 +27,7 @@ from .alocacao import (
     enriquecer_vaga,
     finalizar_vaga,
     organizar,
+    receber_prova,
     redistribuir_datas_municipio,
     _preencher_datas_faltantes,
 )
@@ -149,6 +150,10 @@ class AdminEntrarBody(BaseModel):
 
 class FinalizarBody(BaseModel):
     finalizada: bool = True
+
+
+class ReceberProvaBody(BaseModel):
+    recebida: bool = True
 
 
 @app.on_event("startup")
@@ -421,6 +426,60 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
                 "pendentes": len(pendentes),
                 "aplicadas": len(aplicadas),
                 "livres": len(livres),
+            },
+        }
+
+
+@app.get("/api/recebimento-provas")
+def recebimento_provas(municipio_id: int | None = None, data: str | None = None):
+    with get_db() as conn:
+        filtro = ["v.aplicador_id IS NOT NULL"]
+        params: list = []
+        if municipio_id:
+            filtro.append("e.municipio_id = ?")
+            params.append(municipio_id)
+        if data:
+            filtro.append("v.data = ?")
+            params.append(data)
+        where = f"WHERE {' AND '.join(filtro)}"
+        rows = conn.execute(
+            f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+                      v.prova_recebida_em, v.finalizado_em,
+                      e.nome AS escola, e.rede, e.codigo AS escola_codigo,
+                      m.id AS municipio_id, m.nome AS municipio,
+                      a.id AS aplicador_id, a.nome AS aplicador_nome, a.codigo AS aplicador_codigo
+               FROM vagas v
+               JOIN escolas e ON e.id = v.escola_id
+               JOIN municipios m ON m.id = e.municipio_id
+               JOIN aplicadores a ON a.id = v.aplicador_id
+               {where}
+               ORDER BY v.data, v.turno, m.nome, e.nome, v.serie""",
+            params,
+        ).fetchall()
+        pendentes = []
+        recebidas = []
+        for r in rows:
+            item = dict(r)
+            item["aplicador"] = {
+                "id": item["aplicador_id"],
+                "nome": item["aplicador_nome"] or item["aplicador_codigo"],
+                "codigo": item["aplicador_codigo"],
+            }
+            item["prova_recebida"] = bool(item.get("prova_recebida_em"))
+            if item["prova_recebida"]:
+                recebidas.append(item)
+            else:
+                pendentes.append(item)
+        datas = sorted({r["data"] for r in rows if r["data"]})
+        return {
+            "total": len(rows),
+            "pendentes": pendentes,
+            "recebidas": recebidas,
+            "datas": datas,
+            "contagem": {
+                "pendentes": len(pendentes),
+                "recebidas": len(recebidas),
+                "alocadas": len(rows),
             },
         }
 
@@ -822,6 +881,15 @@ def api_finalizar(vaga_id: int, body: FinalizarBody):
         return resultado
 
 
+@app.post("/api/vagas/{vaga_id}/receber-prova")
+def api_receber_prova(vaga_id: int, body: ReceberProvaBody):
+    with get_db() as conn:
+        resultado = receber_prova(conn, vaga_id, body.recebida)
+        if not resultado.get("ok"):
+            raise HTTPException(400, resultado.get("erro") or "Não foi possível marcar o recebimento.")
+        return resultado
+
+
 @app.post("/api/quadro/organizar")
 def api_organizar(body: OrganizarBody):
     with get_db() as conn:
@@ -839,14 +907,14 @@ def api_limpar(body: LimparBody):
     with get_db() as conn:
         if body.municipio_id:
             conn.execute(
-                """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL
+                """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
                    WHERE escola_id IN (
                      SELECT id FROM escolas WHERE municipio_id = ?
                    )""",
                 (body.municipio_id,),
             )
         else:
-            conn.execute("UPDATE vagas SET aplicador_id = NULL, alocacao = NULL")
+            conn.execute("UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL")
         livres = conn.execute(
             "SELECT COUNT(*) n FROM vagas WHERE aplicador_id IS NULL"
         ).fetchone()["n"]

@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS vagas (
     origem_linha INTEGER UNIQUE,
     aplicador_id INTEGER REFERENCES aplicadores(id),
     status TEXT NOT NULL DEFAULT 'PREVISTA',
-    finalizado_em TEXT
+    finalizado_em TEXT,
+    prova_recebida_em TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_vagas_data ON vagas(data);
@@ -121,7 +122,8 @@ CREATE TABLE IF NOT EXISTS vagas (
     finalizado_em TEXT,
     turma TEXT,
     n_alunos INTEGER,
-    alocacao TEXT
+    alocacao TEXT,
+    prova_recebida_em TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_vagas_data ON vagas(data);
@@ -410,6 +412,8 @@ def _permitir_vaga_sem_data(conn) -> None:
         "finalizado_em",
         "turma",
         "n_alunos",
+        "alocacao",
+        "prova_recebida_em",
     ]
     comuns = [c for c in destino if c in existentes]
     conn.execute("PRAGMA foreign_keys = OFF")
@@ -426,7 +430,9 @@ def _permitir_vaga_sem_data(conn) -> None:
             status TEXT NOT NULL DEFAULT 'PREVISTA',
             finalizado_em TEXT,
             turma TEXT,
-            n_alunos INTEGER
+            n_alunos INTEGER,
+            alocacao TEXT,
+            prova_recebida_em TEXT
         )"""
     )
     conn.execute(
@@ -462,6 +468,7 @@ def _ensure_colunas_postgres(conn) -> None:
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS turma TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS n_alunos INTEGER",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS alocacao TEXT",
+        "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS prova_recebida_em TEXT",
         "ALTER TABLE viagens ADD COLUMN IF NOT EXISTS dias_aplicacao TEXT",
         "ALTER TABLE vagas ALTER COLUMN origem_linha TYPE BIGINT",
     ]
@@ -511,6 +518,9 @@ def ensure_colunas(conn) -> None:
     vcols = {row[1] for row in conn.execute("PRAGMA table_info(vagas)")}
     if "alocacao" not in vcols:
         conn.execute("ALTER TABLE vagas ADD COLUMN alocacao TEXT")
+    vcols = {row[1] for row in conn.execute("PRAGMA table_info(vagas)")}
+    if "prova_recebida_em" not in vcols:
+        conn.execute("ALTER TABLE vagas ADD COLUMN prova_recebida_em TEXT")
     try:
         vicols = {row[1] for row in conn.execute("PRAGMA table_info(viagens)")}
         if "dias_aplicacao" not in vicols:
@@ -681,6 +691,7 @@ def _migrar_sqlite_se_postgres_vazio() -> None:
                         "turma",
                         "n_alunos",
                         "alocacao",
+                        "prova_recebida_em",
                     ],
                 )
             if "sessoes_acesso" in tabelas:

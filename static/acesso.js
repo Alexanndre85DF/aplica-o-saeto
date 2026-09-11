@@ -83,14 +83,16 @@ async function carregarPainel() {
         : "";
       return `<article class="app ${a.finalizada ? "feita" : ""}">
         <span class="chip ${a.finalizada ? "ok" : ""}">${a.finalizada ? "Finalizada" : "Prevista"}</span>
+        <span class="chip ${a.prova_recebida ? "ok" : ""}">${a.prova_recebida ? "Prova: recebida" : "Prova: pendente"}</span>
         <b>${tit(a.escola)}</b>
         <div class="meta">
           ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
           <b>${a.serie}${a.turma ? " — " + a.turma : ""}${a.n_alunos ? " · " + a.n_alunos + " alunos" : ""}</b>
           ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
           ${viagem ? "<br />" + viagem : ""}
+          ${!a.prova_recebida && !a.finalizada ? "<br />Aguarde a SRE marcar o recebimento da prova." : ""}
         </div>
-        <button type="button" data-id="${a.id}" data-feita="${a.finalizada ? "1" : "0"}">
+        <button type="button" data-id="${a.id}" data-feita="${a.finalizada ? "1" : "0"}" ${!a.prova_recebida && !a.finalizada ? "disabled" : ""}>
           ${a.finalizada ? "Reabrir" : "Marcar como aplicada"}
         </button>
       </article>`;
