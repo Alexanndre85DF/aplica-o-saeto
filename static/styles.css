@@ -548,6 +548,21 @@ table.grade {
 }
 .slot .serie { font-size: 12px; font-weight: 700; }
 .slot .quem { font-size: 13px; margin-top: 2px; }
+.slot .extras-linha { color: var(--gold); font-weight: 700; }
+.slot .extras-choque { color: var(--choque); }
+.slot.finalizada .extras-linha { color: #fde68a; }
+.bloco-extras { margin-top: 18px; padding-top: 12px; border-top: 1px solid #808080; }
+.bloco-extras h3 { margin: 12px 0 6px; }
+.extra-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  box-shadow: var(--sunken);
+  padding: 8px;
+  margin-bottom: 6px;
+}
 
 .tabela {
   width: 100%;

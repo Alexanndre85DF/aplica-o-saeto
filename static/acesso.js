@@ -125,27 +125,30 @@ async function carregarPainel() {
   document.getElementById("codigo-apl").textContent = dados.aplicador.codigo || "";
   document.getElementById("cpf-apl").textContent = dados.aplicador.cpf_fmt || "";
   const box = document.getElementById("lista-apps");
-  if (!dados.aplicacoes.length) {
-    box.innerHTML = "<p class='vazio'>Nenhuma aplicação atribuída a você ainda.</p>";
+  const aplicacoes = dados.aplicacoes || [];
+  const extras = dados.extras || [];
+  if (!aplicacoes.length && !extras.length) {
+    box.innerHTML = "<p class='vazio'>Nenhuma aplicação ou extra atribuído a você ainda.</p>";
     return;
   }
-  const nPend = dados.aplicacoes.filter((a) => !a.finalizada).length;
-  const nFim = dados.aplicacoes.length - nPend;
-  box.innerHTML = `<p class="resumo-lista">${dados.aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
-    dados.aplicacoes
-    .map((a) => {
-      const viagem = a.saida_fmt && a.saida_fmt !== "—"
-        ? `Saída ${a.saida_fmt} · retorno ${a.retorno_fmt}`
-        : "";
-      const total = a.n_alunos != null && a.n_alunos !== ""
-        ? `Total de estudantes: ${a.n_alunos}`
-        : "Total de estudantes: não informado";
-      const presentes = a.finalizada
-        ? (a.n_presentes != null
-          ? `Presentes: ${a.n_presentes}${a.n_alunos != null ? " de " + a.n_alunos : ""}`
-          : "Presentes: ainda não informado")
-        : "";
-      return `<article class="app ${a.finalizada ? "feita" : ""}">
+  const nPend = aplicacoes.filter((a) => !a.finalizada).length;
+  const nFim = aplicacoes.length - nPend;
+  const htmlTitular = aplicacoes.length
+    ? `<p class="resumo-lista">${aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
+      aplicacoes
+        .map((a) => {
+          const viagem = a.saida_fmt && a.saida_fmt !== "—"
+            ? `Saída ${a.saida_fmt} · retorno ${a.retorno_fmt}`
+            : "";
+          const total = a.n_alunos != null && a.n_alunos !== ""
+            ? `Total de estudantes: ${a.n_alunos}`
+            : "Total de estudantes: não informado";
+          const presentes = a.finalizada
+            ? (a.n_presentes != null
+              ? `Presentes: ${a.n_presentes}${a.n_alunos != null ? " de " + a.n_alunos : ""}`
+              : "Presentes: ainda não informado")
+            : "";
+          return `<article class="app ${a.finalizada ? "feita" : ""}">
         <span class="chip ${a.finalizada ? "ok" : ""}">${a.finalizada ? "Finalizada" : "Prevista"}</span>
         <span class="chip ${a.prova_recebida ? "ok" : ""}">${a.prova_recebida ? "Prova: recebida" : "Prova: pendente"}</span>
         <b>${tit(a.escola)}</b>
@@ -162,8 +165,31 @@ async function carregarPainel() {
           ${a.finalizada ? "Reabrir" : "Marcar como aplicada"}
         </button>
       </article>`;
-    })
-    .join("");
+        })
+        .join("")
+    : "";
+  const htmlExtras = extras.length
+    ? `<p class="resumo-lista">${extras.length} extra(s) · acompanha aluno especial</p>` +
+      extras
+        .map((a) => {
+          const titular = a.titular
+            ? `Pegue a prova específica no bloco de ${a.titular.nome}${a.titular.codigo ? " · " + a.titular.codigo : ""}.`
+            : "A turma ainda não tem aplicador titular. A prova sai do bloco dele quando for alocado.";
+          return `<article class="app extra">
+        <span class="chip extra">Extra</span>
+        <b>${tit(a.escola)}</b>
+        <div class="meta">
+          ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
+          <b>${a.serie}${a.turma ? " — " + a.turma : ""}</b>
+          ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
+          <br />${titular}
+          <br />Você não confirma a aplicação nem recebe prova na SRE.
+        </div>
+      </article>`;
+        })
+        .join("")
+    : "";
+  box.innerHTML = htmlTitular + htmlExtras;
   box.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";
@@ -176,7 +202,7 @@ async function carregarPainel() {
         await carregarPainel();
         return;
       }
-      const app = dados.aplicacoes.find((x) => String(x.id) === String(btn.dataset.id));
+      const app = aplicacoes.find((x) => String(x.id) === String(btn.dataset.id));
       if (app) abrirDlgPresentes(app);
     });
   });

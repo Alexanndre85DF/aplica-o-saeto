@@ -111,3 +111,40 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
         item["prova_recebida"] = bool(item.get("prova_recebida_em"))
         lista.append(item)
     return lista
+
+
+def minhas_extras(conn, aplicador_id: int) -> list[dict]:
+    try:
+        rows = conn.execute(
+            """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+                      e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
+                      m.nome AS municipio, vi.data_saida, vi.data_retorno,
+                      t.id AS titular_id, t.codigo AS titular_codigo, t.nome AS titular_nome
+               FROM vaga_extras x
+               JOIN vagas v ON v.id = x.vaga_id
+               JOIN escolas e ON e.id = v.escola_id
+               JOIN municipios m ON m.id = e.municipio_id
+               LEFT JOIN viagens vi ON vi.municipio_id = m.id
+               LEFT JOIN aplicadores t ON t.id = v.aplicador_id
+               WHERE x.aplicador_id = ?
+               ORDER BY v.data, v.turno, e.nome, v.serie""",
+            (aplicador_id,),
+        ).fetchall()
+    except Exception:
+        return []
+    lista = []
+    for r in rows:
+        item = dict(r)
+        item["data_fmt"] = fmt_data(item["data"])
+        item["saida_fmt"] = fmt_data(item["data_saida"])
+        item["retorno_fmt"] = fmt_data(item["data_retorno"])
+        item["papel"] = "extra"
+        item["titular"] = None
+        if item.get("titular_id"):
+            item["titular"] = {
+                "id": item["titular_id"],
+                "codigo": item["titular_codigo"],
+                "nome": item["titular_nome"] or item["titular_codigo"],
+            }
+        lista.append(item)
+    return lista

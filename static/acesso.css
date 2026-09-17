@@ -163,6 +163,8 @@ button.ghost {
   box-shadow: var(--sunken);
 }
 .app.feita { opacity: 0.85; }
+.app.extra { background: #fffbeb; }
+.chip.extra { background: #fef3c7; color: #92400e; }
 .app b { display: block; font-size: 16px; }
 .app .meta { color: var(--soft); font-size: 13px; margin: 6px 0 12px; }
 .chip {

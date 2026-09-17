@@ -147,17 +147,8 @@ def problemas_da_vaga(conn, vaga: dict) -> list[dict]:
     if not aplicador_id:
         return [_vago_msg()]
 
-    outros = conn.execute(
-        """
-        SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
-               m.nome AS municipio_nome, m.id AS municipio_id
-        FROM vagas v
-        JOIN escolas e ON e.id = v.escola_id
-        JOIN municipios m ON m.id = e.municipio_id
-        WHERE v.aplicador_id = ? AND v.id != ?
-        """,
-        (aplicador_id, vaga["id"]),
-    ).fetchall()
+    agenda = _agenda_ocupadas(conn)
+    outros = [o for o in agenda.get(aplicador_id, []) if o["id"] != vaga["id"]]
     problemas = _problemas_com_outros(vaga, outros)
 
     par = serie_par_segundo_ano(vaga["serie"])
@@ -181,25 +172,7 @@ def enriquecer_vaga(conn, vaga: dict) -> dict:
 
 
 def enriquecer_vagas(conn, vagas: list[dict]) -> list[dict]:
-    ids = {v.get("aplicador_id") for v in vagas if v.get("aplicador_id")}
-    outros_por: dict[int, list[dict]] = defaultdict(list)
-    if ids:
-        ph = ",".join("?" * len(ids))
-        rows = conn.execute(
-            f"""
-            SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
-                   m.nome AS municipio_nome, m.id AS municipio_id
-            FROM vagas v
-            JOIN escolas e ON e.id = v.escola_id
-            JOIN municipios m ON m.id = e.municipio_id
-            WHERE v.aplicador_id IN ({ph})
-            """,
-            tuple(ids),
-        ).fetchall()
-        for r in rows:
-            d = dict(r)
-            outros_por[d["aplicador_id"]].append(d)
-
+    agenda = _agenda_ocupadas(conn)
     indice_local = {
         (v["escola_id"], v["turno"], v["serie"], v.get("ordem") or 1): v for v in vagas
     }
@@ -209,7 +182,7 @@ def enriquecer_vagas(conn, vagas: list[dict]) -> list[dict]:
         if not aplicador_id:
             problemas = [_vago_msg()]
         else:
-            outros = [o for o in outros_por.get(aplicador_id, []) if o["id"] != vaga["id"]]
+            outros = [o for o in agenda.get(aplicador_id, []) if o["id"] != vaga["id"]]
             problemas = _problemas_com_outros(vaga, outros)
             par = serie_par_segundo_ano(vaga["serie"])
             if par:
@@ -226,6 +199,7 @@ def enriquecer_vagas(conn, vagas: list[dict]) -> list[dict]:
         vaga["tem_choque"] = any(p["grau"] == "choque" for p in problemas)
         vaga["tem_aviso"] = any(p["grau"] == "aviso" for p in problemas)
         vaga["vago"] = aplicador_id is None
+    _anexar_extras(conn, vagas, agenda)
     return vagas
 
 
@@ -280,21 +254,300 @@ def pode_alocar(conn, vaga_id: int, aplicador_id: int) -> dict:
     }
 
 
+_OCUP_CAMPOS = """
+    v.id AS vaga_id, v.escola_id, v.serie, v.turno, v.data, v.ordem, v.turma,
+    e.nome AS escola_nome, e.codigo AS escola_codigo,
+    m.nome AS municipio_nome, m.id AS municipio_id
+"""
+
+
+def _n_extras(vaga) -> int:
+    try:
+        return max(0, int(vaga.get("n_extras") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ocupacao_titular(row) -> dict:
+    d = dict(row)
+    d["vaga_id"] = d["vaga_id"]
+    d["id"] = d["vaga_id"]
+    d["papel"] = "titular"
+    return d
+
+
+def _ocupacao_extra(row) -> dict:
+    d = dict(row)
+    d["vaga_id"] = d["vaga_id"]
+    d["id"] = -int(d["vaga_id"])
+    d["papel"] = "extra"
+    return d
+
+
 def _agenda_ocupadas(conn) -> dict[int, list[dict]]:
     por: dict[int, list[dict]] = defaultdict(list)
     for r in conn.execute(
-        """
-        SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
-               m.nome AS municipio_nome, m.id AS municipio_id
+        f"""
+        SELECT {_OCUP_CAMPOS}, v.aplicador_id
         FROM vagas v
         JOIN escolas e ON e.id = v.escola_id
         JOIN municipios m ON m.id = e.municipio_id
         WHERE v.aplicador_id IS NOT NULL
         """
     ):
-        d = dict(r)
+        d = _ocupacao_titular(r)
+        por[d["aplicador_id"]].append(d)
+    try:
+        extras = conn.execute(
+            f"""
+            SELECT {_OCUP_CAMPOS}, x.aplicador_id
+            FROM vaga_extras x
+            JOIN vagas v ON v.id = x.vaga_id
+            JOIN escolas e ON e.id = v.escola_id
+            JOIN municipios m ON m.id = e.municipio_id
+            """
+        )
+    except Exception:
+        extras = []
+    for r in extras:
+        d = _ocupacao_extra(r)
         por[d["aplicador_id"]].append(d)
     return por
+
+
+def extras_da_vaga(conn, vaga_id: int) -> list[dict]:
+    try:
+        rows = conn.execute(
+            """SELECT a.id, a.codigo, a.nome, a.numero
+               FROM vaga_extras x
+               JOIN aplicadores a ON a.id = x.aplicador_id
+               WHERE x.vaga_id = ?
+               ORDER BY COALESCE(a.numero, 9999), a.codigo""",
+            (vaga_id,),
+        ).fetchall()
+    except Exception:
+        return []
+    return [
+        {
+            "id": r["id"],
+            "codigo": r["codigo"],
+            "nome": r["nome"] or r["codigo"],
+        }
+        for r in rows
+    ]
+
+
+def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None = None) -> None:
+    if agenda is None:
+        agenda = _agenda_ocupadas(conn)
+    ids = [v["id"] for v in vagas if v.get("id")]
+    por: dict[int, list[dict]] = defaultdict(list)
+    if ids:
+        ph = ",".join("?" * len(ids))
+        try:
+            rows = conn.execute(
+                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome
+                    FROM vaga_extras x
+                    JOIN aplicadores a ON a.id = x.aplicador_id
+                    WHERE x.vaga_id IN ({ph})
+                    ORDER BY COALESCE(a.numero, 9999), a.codigo""",
+                tuple(ids),
+            ).fetchall()
+        except Exception:
+            rows = []
+        for r in rows:
+            por[r["vaga_id"]].append(
+                {"id": r["id"], "codigo": r["codigo"], "nome": r["nome"] or r["codigo"]}
+            )
+    for vaga in vagas:
+        lista = []
+        extras_choque = False
+        for extra in por.get(vaga["id"], []):
+            outros = [
+                o
+                for o in agenda.get(extra["id"], [])
+                if not (o.get("papel") == "extra" and o.get("vaga_id") == vaga["id"])
+            ]
+            problemas = _problemas_com_outros(vaga, outros)
+            tem_choque = any(p["grau"] == "choque" for p in problemas)
+            extra["tem_choque"] = tem_choque
+            if tem_choque:
+                extras_choque = True
+            lista.append(extra)
+        n = _n_extras(vaga)
+        vaga["n_extras"] = n
+        vaga["extras"] = lista
+        vaga["extras_preenchidos"] = len(lista)
+        vaga["extras_faltam"] = max(0, n - len(lista))
+        vaga["extras_tem_choque"] = extras_choque
+        if extras_choque:
+            vaga["tem_choque"] = True
+
+
+def _checar_extra(vaga: dict, aplicador_id: int, agenda: dict) -> dict:
+    if aplicador_id == vaga.get("aplicador_id"):
+        choque = {
+            "tipo": "titular",
+            "grau": "choque",
+            "mensagem": "Este já é o aplicador titular da turma.",
+        }
+        return {"ok": False, "choques": [choque], "avisos": [], "problemas": [choque], "ja_extra": False}
+    slots = agenda.get(aplicador_id, [])
+    ja = any(o.get("papel") == "extra" and o.get("vaga_id") == vaga["id"] for o in slots)
+    simulada = dict(vaga)
+    simulada["aplicador_id"] = aplicador_id
+    outros = [
+        o
+        for o in slots
+        if not (o.get("papel") == "extra" and o.get("vaga_id") == vaga["id"])
+    ]
+    problemas = _unicos_problemas(_problemas_com_outros(simulada, outros))
+    choques = [p for p in problemas if p["grau"] == "choque"]
+    return {
+        "ok": len(choques) == 0,
+        "choques": choques,
+        "avisos": [p for p in problemas if p["grau"] == "aviso"],
+        "problemas": problemas,
+        "ja_extra": ja,
+    }
+
+
+def definir_n_extras(conn, vaga_id: int, n_extras: int) -> dict:
+    vaga = conn.execute("SELECT id, n_extras FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
+    if not vaga:
+        return {"ok": False, "erro": "Turma não encontrada."}
+    try:
+        n = max(0, int(n_extras))
+    except (TypeError, ValueError):
+        return {"ok": False, "erro": "Informe um número de alunos especiais."}
+    atuais = len(extras_da_vaga(conn, vaga_id))
+    if n < atuais:
+        return {
+            "ok": False,
+            "erro": f"Já há {atuais} extra(s) nesta turma. Tire alguém antes de diminuir.",
+        }
+    conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, vaga_id))
+    return {"ok": True, "n_extras": n, "extras": extras_da_vaga(conn, vaga_id)}
+
+
+def alocar_extra(conn, vaga_id: int, aplicador_id: int, forcar: bool = False) -> dict:
+    vaga = conn.execute(
+        """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
+           FROM vagas v
+           JOIN escolas e ON e.id = v.escola_id
+           JOIN municipios m ON m.id = e.municipio_id
+           WHERE v.id = ?""",
+        (vaga_id,),
+    ).fetchone()
+    if not vaga:
+        return {"ok": False, "erro": "Turma não encontrada."}
+    vaga = dict(vaga)
+    pessoa = conn.execute(
+        "SELECT id, ativo FROM aplicadores WHERE id = ?", (aplicador_id,)
+    ).fetchone()
+    if not pessoa or not pessoa["ativo"]:
+        return {"ok": False, "erro": "Aplicador não encontrado ou inativo."}
+    n = _n_extras(vaga)
+    if n <= 0:
+        return {"ok": False, "erro": "Informe quantos alunos especiais esta turma tem."}
+    atuais = extras_da_vaga(conn, vaga_id)
+    if any(x["id"] == aplicador_id for x in atuais):
+        return {"ok": True, "extras": atuais, "n_extras": n}
+    if len(atuais) >= n:
+        return {"ok": False, "erro": f"Esta turma já tem os {n} extra(s)."}
+    agenda = _agenda_ocupadas(conn)
+    checagem = _checar_extra(vaga, aplicador_id, agenda)
+    if not checagem["ok"] and not forcar:
+        return {
+            "ok": False,
+            "erro": checagem["choques"][0]["mensagem"] if checagem["choques"] else "Este aplicador não pode ser extra nesta turma.",
+            "choques": checagem["choques"],
+        }
+    conn.execute(
+        "INSERT INTO vaga_extras(vaga_id, aplicador_id) VALUES (?, ?)",
+        (vaga_id, aplicador_id),
+    )
+    return {
+        "ok": True,
+        "extras": extras_da_vaga(conn, vaga_id),
+        "n_extras": n,
+        "forcado": bool(forcar and not checagem["ok"]),
+    }
+
+
+def remover_extra(conn, vaga_id: int, aplicador_id: int) -> dict:
+    atual = conn.execute(
+        "SELECT 1 FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+        (vaga_id, aplicador_id),
+    ).fetchone()
+    if not atual:
+        return {"ok": False, "erro": "Este extra não está nesta turma."}
+    conn.execute(
+        "DELETE FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+        (vaga_id, aplicador_id),
+    )
+    vaga = conn.execute("SELECT n_extras FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
+    return {
+        "ok": True,
+        "extras": extras_da_vaga(conn, vaga_id),
+        "n_extras": _n_extras(dict(vaga) if vaga else {}),
+    }
+
+
+def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[dict]:
+    vaga = conn.execute(
+        """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
+           FROM vagas v
+           JOIN escolas e ON e.id = v.escola_id
+           JOIN municipios m ON m.id = e.municipio_id
+           WHERE v.id = ?""",
+        (vaga_id,),
+    ).fetchone()
+    if not vaga:
+        return []
+    vaga = dict(vaga)
+    if data:
+        vaga["data"] = data[:10]
+    n = _n_extras(vaga)
+    agenda = _agenda_ocupadas(conn)
+    atuais = extras_da_vaga(conn, vaga_id)
+    cheio = len(atuais) >= n > 0
+    aplicadores = conn.execute(
+        "SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo"
+    ).fetchall()
+    lista = []
+    for a in aplicadores:
+        checagem = _checar_extra(vaga, a["id"], agenda)
+        slots = agenda.get(a["id"], [])
+        titular_slots = [o for o in slots if o.get("papel") != "extra"]
+        extra_slots = [o for o in slots if o.get("papel") == "extra"]
+        ok = checagem["ok"]
+        if cheio and not checagem["ja_extra"]:
+            ok = False
+            if not checagem["choques"]:
+                checagem["choques"] = [
+                    {
+                        "tipo": "cheio",
+                        "grau": "choque",
+                        "mensagem": f"Esta turma já tem os {n} extra(s).",
+                    }
+                ]
+        lista.append(
+            {
+                "id": a["id"],
+                "codigo": a["codigo"],
+                "nome": a["nome"] or a["codigo"],
+                "carga": len(titular_slots),
+                "carga_extra": len(extra_slots),
+                "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
+                "ok": ok,
+                "choques": checagem["choques"],
+                "avisos": checagem["avisos"],
+                "selecionado": checagem["ja_extra"],
+            }
+        )
+    lista.sort(key=lambda x: (not x["selecionado"], not x["ok"], not x["no_municipio"], x["carga"], x["nome"]))
+    return lista
 
 
 def _par_da_vaga(conn, vaga: dict) -> dict | None:
@@ -359,12 +612,15 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
             o for o in slots if o["id"] != vaga["id"] and dia and o.get("data") == dia
         ]
         selecionado = a["id"] == vaga.get("aplicador_id")
+        titular_slots = [o for o in slots if o.get("papel") != "extra"]
+        extra_slots = [o for o in slots if o.get("papel") == "extra"]
         lista.append(
             {
                 "id": a["id"],
                 "codigo": a["codigo"],
                 "nome": a["nome"] or a["codigo"],
-                "carga": len(slots),
+                "carga": len(titular_slots),
+                "carga_extra": len(extra_slots),
                 "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],
@@ -470,8 +726,15 @@ def substituir_aplicador(
            WHERE aplicador_id = ? AND data = ? AND id != ?""",
         (novo_aplicador_id, dia, vaga_id),
     ).fetchone()
-    if int((ocupado["n"] if ocupado else 0) or 0) > 0:
-        return {"ok": False, "erro": "Este aplicador já tem aplicação neste dia."}
+    extra_dia = conn.execute(
+        """SELECT COUNT(*) AS n
+           FROM vaga_extras x
+           JOIN vagas v ON v.id = x.vaga_id
+           WHERE x.aplicador_id = ? AND v.data = ? AND v.id != ?""",
+        (novo_aplicador_id, dia, vaga_id),
+    ).fetchone()
+    if int((ocupado["n"] if ocupado else 0) or 0) + int((extra_dia["n"] if extra_dia else 0) or 0) > 0:
+        return {"ok": False, "erro": "Este aplicador já tem aplicação ou extra neste dia."}
 
     resultado = alocar(
         conn,

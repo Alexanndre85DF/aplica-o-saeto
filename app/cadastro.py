@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import date, timedelta
 
 from .regras import (
@@ -50,6 +51,66 @@ def _nome_mun(valor: str) -> str:
     return nome
 
 
+def chave_municipio(nome: str) -> str:
+    texto = unicodedata.normalize("NFD", normalizar_texto(nome).upper())
+    return "".join(c for c in texto if unicodedata.category(c) != "Mn")
+
+
+def id_municipio_por_nome(conn, nome: str):
+    chave = chave_municipio(nome)
+    for row in conn.execute("SELECT id, nome FROM municipios"):
+        if chave_municipio(row["nome"]) == chave:
+            return row["id"]
+    return None
+
+
+def garantir_municipio(conn, nome: str) -> int:
+    nome = _nome_mun(nome)
+    existente = id_municipio_por_nome(conn, nome)
+    if existente:
+        return existente
+    cur = conn.execute("INSERT INTO municipios(nome) VALUES (?)", (nome,))
+    return cur.lastrowid
+
+
+def consolidar_municipios(conn) -> int:
+    """Junta municípios iguais (com ou sem acento) e fica com o que tem aplicações."""
+    grupos: dict[str, list] = {}
+    for row in conn.execute("SELECT id, nome FROM municipios").fetchall():
+        grupos.setdefault(chave_municipio(row["nome"]), []).append(row)
+    unidos = 0
+    for lista in grupos.values():
+        if len(lista) < 2:
+            continue
+        pontuados = []
+        for row in lista:
+            n = conn.execute(
+                """SELECT COUNT(v.id) n
+                   FROM escolas e
+                   JOIN vagas v ON v.escola_id = e.id
+                   WHERE e.municipio_id = ?""",
+                (row["id"],),
+            ).fetchone()["n"]
+            escolas = conn.execute(
+                "SELECT COUNT(*) n FROM escolas WHERE municipio_id = ?",
+                (row["id"],),
+            ).fetchone()["n"]
+            pontuados.append((n, escolas, row))
+        pontuados.sort(key=lambda item: (-item[0], -item[1], item[2]["id"]))
+        vencedor_id = pontuados[0][2]["id"]
+        for _n_vagas, _n_escolas, row in pontuados[1:]:
+            if row["id"] == vencedor_id:
+                continue
+            conn.execute(
+                "UPDATE escolas SET municipio_id = ? WHERE municipio_id = ?",
+                (vencedor_id, row["id"]),
+            )
+            conn.execute("DELETE FROM viagens WHERE municipio_id = ?", (row["id"],))
+            conn.execute("DELETE FROM municipios WHERE id = ?", (row["id"],))
+            unidos += 1
+    return unidos
+
+
 def proximo_codigo(conn, prefixo: str, tabela: str, coluna: str) -> str:
     n = conn.execute(f"SELECT COUNT(*) n FROM {tabela}").fetchone()["n"] + 1
     while True:
@@ -91,9 +152,7 @@ def _gravar_viagem(conn, municipio_id: int, saida, retorno, dias) -> None:
 
 def criar_municipio(conn, nome: str, data_saida=None, data_retorno=None, dias=None) -> dict:
     nome = _nome_mun(nome)
-    existente = conn.execute(
-        "SELECT id FROM municipios WHERE nome = ?", (nome,)
-    ).fetchone()
+    existente = id_municipio_por_nome(conn, nome)
     if existente:
         raise ValueError("Este município já está cadastrado.")
     cur = conn.execute("INSERT INTO municipios(nome) VALUES (?)", (nome,))
@@ -126,11 +185,8 @@ def atualizar_municipio(
         raise LookupError("Município não encontrado.")
     if nome is not None:
         nome = _nome_mun(nome)
-        outro = conn.execute(
-            "SELECT id FROM municipios WHERE nome = ? AND id != ?",
-            (nome, municipio_id),
-        ).fetchone()
-        if outro:
+        outro = id_municipio_por_nome(conn, nome)
+        if outro and outro != municipio_id:
             raise ValueError("Já existe outro município com esse nome.")
         conn.execute("UPDATE municipios SET nome = ? WHERE id = ?", (nome, municipio_id))
     viagem = conn.execute(
@@ -466,6 +522,7 @@ def excluir_aplicador(conn, aplicador_id: int) -> None:
     if not atual:
         raise LookupError("Aplicador não encontrado.")
     conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
+    conn.execute("DELETE FROM vaga_extras WHERE aplicador_id = ?", (aplicador_id,))
     conn.execute(
         """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
            WHERE aplicador_id = ?""",
@@ -519,6 +576,7 @@ def excluir_vaga(conn, vaga_id: int) -> None:
     atual = conn.execute("SELECT id FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
     if not atual:
         raise LookupError("Vaga não encontrada.")
+    conn.execute("DELETE FROM vaga_extras WHERE vaga_id = ?", (vaga_id,))
     conn.execute("DELETE FROM vagas WHERE id = ?", (vaga_id,))
 
 
@@ -529,6 +587,7 @@ def origem_manual(conn) -> bool:
 
 def zerar_tudo(conn) -> None:
     conn.execute("DELETE FROM sessoes_acesso")
+    conn.execute("DELETE FROM vaga_extras")
     conn.execute("DELETE FROM vagas")
     conn.execute("DELETE FROM viagens")
     conn.execute("DELETE FROM escolas")

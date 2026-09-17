@@ -198,8 +198,9 @@ async function abrirVaga(vagaId) {
     ? rotuloCand(atual)
     : (v.apl_nome || v.apl_codigo || "o aplicador atual");
   const htmlCand = (c) => {
+    const cargaTxt = `${c.carga || 0} aplicação(ões)${c.carga_extra ? " + " + c.carga_extra + " extra(s)" : ""}`;
     const motivo = c.ok
-      ? `${c.carga} aplicação(ões)${c.no_municipio ? " · já neste município" : ""}`
+      ? `${cargaTxt}${c.no_municipio ? " · já neste município" : ""}`
       : (c.choques[0] && c.choques[0].mensagem) || "Indisponível";
     return `<button class="cand ${c.ok ? "" : "choque"} ${c.selecionado ? "selecionado" : ""}"
               data-id="${c.id}" data-ok="${c.ok ? "1" : "0"}">
@@ -208,6 +209,17 @@ async function abrirVaga(vagaId) {
             </button>`;
   };
   const cands = data.candidatos.map(htmlCand).join("");
+  const nEx = Number(v.n_extras || 0);
+  const extras = v.extras || [];
+  const extraCands = (data.candidatos_extra || []).map(htmlCand).join("");
+  const listaExtras = extras
+    .map(
+      (e) => `<div class="extra-item">
+        <span><b>${escHtml(e.nome)}</b> · ${escHtml(e.codigo || "")}${e.tem_choque ? ' <span class="chip choque">choque</span>' : ""}</span>
+        <button type="button" class="btn sm ghost" data-tirar-extra="${e.id}">Tirar</button>
+      </div>`
+    )
+    .join("");
   const dataPadrao = v.data || v.data_saida || "";
   const minData = v.data_saida || "";
   const maxData = v.data_retorno || v.data_saida || "";
@@ -244,6 +256,17 @@ async function abrirVaga(vagaId) {
     </div>` : ""}
     <h3>Quem pode entrar</h3>
     <div id="lista-cands">${cands}</div>
+    <section class="bloco-extras">
+      <h3>Aplicadores extras</h3>
+      <p class="escola-meta">Acompanham alunos especiais. Pegam a prova no bloco do titular. Não confirmam aplicação nem recebem prova na SRE.</p>
+      <label class="campo">Alunos especiais
+        <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
+      </label>
+      <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>
+      <p class="escola-meta">${extras.length} de ${nEx} extra(s) encaixado(s). Inclua um por um.</p>
+      ${listaExtras || (nEx ? "<p class='escola-meta'>Nenhum extra nesta turma ainda.</p>" : "<p class='escola-meta'>Informe quantos alunos especiais e salve a quantidade.</p>")}
+      ${nEx > 0 ? `<h3>Quem pode entrar como extra</h3><div id="lista-extras">${extraCands}</div>` : ""}
+    </section>
   `;
 
   const dataEscolhida = () => $("#vaga-data")?.value || null;
@@ -310,6 +333,55 @@ async function abrirVaga(vagaId) {
         });
         fecharDrawer();
         mostrarView("quadro");
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  const recarregarTurma = async () => {
+    if (state.municipioId) {
+      const q = await api(`/api/quadro?municipio_id=${state.municipioId}`);
+      await pintarQuadro(q);
+    }
+    await abrirVaga(vagaId);
+  };
+
+  $("#btn-salvar-extras")?.addEventListener("click", async () => {
+    const n = Number($("#n-extras")?.value || 0);
+    try {
+      await api(`/api/vagas/${vagaId}/n-extras`, {
+        method: "POST",
+        body: JSON.stringify({ n_extras: n }),
+      });
+      await recarregarTurma();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  $$("[data-tirar-extra]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/api/vagas/${vagaId}/extras/${btn.dataset.tirarExtra}`, { method: "DELETE" });
+        await recarregarTurma();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  $$("#lista-extras .cand").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (btn.dataset.ok === "1" && (v.extras || []).some((e) => String(e.id) === String(btn.dataset.id))) {
+        return;
+      }
+      const forcar = btn.dataset.ok !== "1";
+      if (forcar && !confirm("Este aplicador tem choque neste horário. Colocar como extra mesmo assim?")) return;
+      try {
+        await api(`/api/vagas/${vagaId}/extras`, {
+          method: "POST",
+          body: JSON.stringify({ aplicador_id: Number(btn.dataset.id), forcar }),
+        });
+        await recarregarTurma();
       } catch (err) {
         alert(err.message);
       }
@@ -461,6 +533,7 @@ async function carregarResumo() {
       <h2>Por município</h2>
       <div class="mun-grid">
         ${r.por_municipio
+          .filter((m) => Number(m.vagas) > 0)
           .map(
             (m) => `<button class="mun-card" data-id="${m.id}">
               <b>${tit(m.nome)}</b>
@@ -1083,6 +1156,9 @@ async function pintarQuadro(preloaded = null) {
                   ${!s.vago && s.aplicador && s.aplicador.codigo && nomeApl(s.aplicador) !== s.aplicador.codigo
                     ? `<div class="escola-meta">${s.aplicador.codigo}</div>`
                     : ""}
+                  ${Number(s.n_extras) > 0
+                    ? `<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">Extras ${s.extras_preenchidos || 0}/${s.n_extras}</div>`
+                    : ""}
                 </button>`;
             })
             .join("");
@@ -1260,7 +1336,7 @@ async function carregarAplicadores() {
           <td>${escHtml(a.codigo)}${a.identificado ? "" : ' <span class="chip vago">sem nome</span>'}</td>
           <td><input class="nome-apl" data-id="${a.id}" value="${escHtml(nomeMostrar)}" placeholder="Nome da pessoa" /></td>
           <td><input class="cpf-apl" data-id="${a.id}" value="${escHtml(a.cpf_fmt || "")}" placeholder="000.000.000-00" maxlength="14" /></td>
-          <td>${a.carga} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
+          <td>${a.carga} turma(s)${a.carga_extra ? " + " + a.carga_extra + " extra(s)" : ""} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
           <td>${
             a.acesso_token
               ? `<button class="btn sm ghost" data-link="${escHtml(a.acesso_token)}">Copiar link</button>`

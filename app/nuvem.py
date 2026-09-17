@@ -27,7 +27,9 @@ TABELAS = [
         "n_presentes",
         "alocacao",
         "prova_recebida_em",
+        "n_extras",
     ]),
+    ("vaga_extras", ["id", "vaga_id", "aplicador_id"]),
     ("sessoes_acesso", ["token", "aplicador_id", "criado_em", "expira_em"]),
     ("meta", ["chave", "valor"]),
 ]
@@ -38,6 +40,7 @@ _CONFLITO = {
     "aplicadores": "id",
     "viagens": "id",
     "vagas": "id",
+    "vaga_extras": "id",
     "sessoes_acesso": "token",
     "meta": "chave",
 }

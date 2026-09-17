@@ -4,6 +4,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from .cadastro import consolidar_municipios, garantir_municipio
 from .regras import (
     eh_segundo_ano_dia1,
     normalizar_serie,
@@ -146,10 +147,7 @@ def importar_homologacao(
         n_alunos = _int(_valor(row, col_alunos))
         cd_turma = _int(_valor(row, col_cd_turma))
 
-        conn.execute("INSERT OR IGNORE INTO municipios(nome) VALUES (?)", (mun,))
-        municipio_id = conn.execute(
-            "SELECT id FROM municipios WHERE nome = ?", (mun,)
-        ).fetchone()[0]
+        municipio_id = garantir_municipio(conn, mun)
 
         existente = conn.execute(
             "SELECT id FROM escolas WHERE codigo = ?", (codigo,)
@@ -211,6 +209,7 @@ def importar_homologacao(
             )
             gravadas += 1
 
+    consolidar_municipios(conn)
     return {
         "arquivo": caminho.name,
         "linhas_lidas": lidas,

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from .cadastro import consolidar_municipios, garantir_municipio, id_municipio_por_nome
 from .config import DATA_DIR
 from .db import get_db
 from .regras import (
@@ -151,10 +152,7 @@ def importar_planilha(caminho: Path) -> dict:
                 avisos.append(f"Linha {row[0].row}: dados incompletos, ignorada.")
                 continue
 
-            conn.execute("INSERT OR IGNORE INTO municipios(nome) VALUES (?)", (mun,))
-            municipio_id = conn.execute(
-                "SELECT id FROM municipios WHERE nome = ?", (mun,)
-            ).fetchone()[0]
+            municipio_id = garantir_municipio(conn, mun)
 
             rede = inferir_rede(escola)
             rural = 1 if eh_rural(escola) else 0
@@ -211,7 +209,9 @@ def importar_planilha(caminho: Path) -> dict:
             retornos = [p[1] for p in pares if p[1]]
             data_saida = min(saidas) if saidas else None
             data_retorno = max(retornos) if retornos else None
-            mid = conn.execute("SELECT id FROM municipios WHERE nome=?", (mun,)).fetchone()[0]
+            mid = id_municipio_por_nome(conn, mun)
+            if not mid:
+                continue
             conn.execute(
                 """INSERT INTO viagens(municipio_id, data_saida, data_retorno)
                    VALUES (?, ?, ?)
@@ -220,6 +220,8 @@ def importar_planilha(caminho: Path) -> dict:
                      data_retorno=excluded.data_retorno""",
                 (mid, data_saida, data_retorno),
             )
+
+        consolidar_municipios(conn)
 
     return {
         "arquivo": caminho.name,

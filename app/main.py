@@ -15,6 +15,7 @@ from .acesso import (
     entrar_por_cpf,
     garantir_token_acesso,
     minhas_aplicacoes,
+    minhas_extras,
 )
 from .admin_auth import (
     COOKIE_ADMIN,
@@ -24,14 +25,18 @@ from .admin_auth import (
 )
 from .alocacao import (
     alocar,
+    alocar_extra,
+    candidatos_para_extra,
     candidatos_para_vaga,
     contar_choques,
+    definir_n_extras,
     enriquecer_vaga,
     enriquecer_vagas,
     finalizar_vaga,
     organizar,
     receber_prova,
     redistribuir_datas_municipio,
+    remover_extra,
     substituir_aplicador,
     _preencher_datas_faltantes,
 )
@@ -42,6 +47,7 @@ from .cadastro import (
     vincular_pessoa,
     desvincular_pessoa,
     _eh_placeholder,
+    consolidar_municipios,
     criar_escola,
     criar_municipio,
     criar_vaga,
@@ -76,6 +82,15 @@ class AlocarBody(BaseModel):
 class SubstituirBody(BaseModel):
     aplicador_id: int
     data: str | None = None
+
+
+class ExtraBody(BaseModel):
+    aplicador_id: int
+    forcar: bool = False
+
+
+class NExtrasBody(BaseModel):
+    n_extras: int
 
 
 class OrganizarBody(BaseModel):
@@ -302,6 +317,7 @@ def api_acesso_eu(saeto_portal: str | None = Cookie(default=None)):
                 "cpf_fmt": formatar_cpf(pessoa["cpf"]),
             },
             "aplicacoes": minhas_aplicacoes(conn, pessoa["id"]),
+            "extras": minhas_extras(conn, pessoa["id"]),
         }
 
 
@@ -345,9 +361,11 @@ def api_opcoes():
 @app.get("/api/resumo")
 def resumo():
     with get_db() as conn:
+        consolidar_municipios(conn)
         tot = conn.execute(
             """SELECT
-                 (SELECT COUNT(*) FROM municipios) AS municipios,
+                 (SELECT COUNT(DISTINCT e.municipio_id)
+                    FROM escolas e JOIN vagas v ON v.escola_id = e.id) AS municipios,
                  (SELECT COUNT(*) FROM escolas) AS escolas,
                  (SELECT COUNT(*) FROM aplicadores) AS aplicadores,
                  COUNT(*) AS vagas,
@@ -368,11 +386,11 @@ def resumo():
             conn.execute(
                 """SELECT m.id, m.nome,
                           COUNT(v.id) AS vagas,
-                          COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                          COALESCE(SUM(CASE WHEN v.id IS NOT NULL AND v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
                           COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
                    FROM municipios m
-                   LEFT JOIN escolas e ON e.municipio_id = m.id
-                   LEFT JOIN vagas v ON v.escola_id = e.id
+                   JOIN escolas e ON e.municipio_id = m.id
+                   JOIN vagas v ON v.escola_id = e.id
                    GROUP BY m.id, m.nome
                    ORDER BY m.nome"""
             )
@@ -509,12 +527,13 @@ def recebimento_provas(municipio_id: int | None = None, data: str | None = None)
 @app.get("/api/municipios")
 def municipios():
     with get_db() as conn:
+        consolidar_municipios(conn)
         rows = rows_to_dicts(
             conn.execute(
                 """SELECT m.*,
                           v.data_saida, v.data_retorno, v.dias_aplicacao,
                           COUNT(vg.id) AS vagas,
-                          COALESCE(SUM(CASE WHEN vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
+                          COALESCE(SUM(CASE WHEN vg.id IS NOT NULL AND vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
                    LEFT JOIN escolas e ON e.municipio_id = m.id
@@ -571,6 +590,7 @@ def aplicadores(lista: bool = False):
             )
         )
         por_apl: dict[int, list] = {}
+        por_extra: dict[int, list] = {}
         for r in rows_to_dicts(
             conn.execute(
                 """SELECT v.id, v.aplicador_id, v.serie, v.turno, v.data, v.status,
@@ -583,12 +603,30 @@ def aplicadores(lista: bool = False):
             )
         ):
             por_apl.setdefault(r["aplicador_id"], []).append(r)
+        try:
+            for r in rows_to_dicts(
+                conn.execute(
+                    """SELECT x.aplicador_id, v.id, v.serie, v.turno, v.data, v.turma,
+                              e.nome AS escola, m.nome AS municipio
+                       FROM vaga_extras x
+                       JOIN vagas v ON v.id = x.vaga_id
+                       JOIN escolas e ON e.id = v.escola_id
+                       JOIN municipios m ON m.id = e.municipio_id
+                       ORDER BY v.data, v.turno, e.nome"""
+                )
+            ):
+                por_extra.setdefault(r["aplicador_id"], []).append(r)
+        except Exception:
+            pass
         lista = []
         for item in pessoas:
             vagas = por_apl.get(item["id"], [])
+            extras = por_extra.get(item["id"], [])
             item["carga"] = len(vagas)
-            item["municipios"] = sorted({r["municipio"] for r in vagas})
+            item["carga_extra"] = len(extras)
+            item["municipios"] = sorted({r["municipio"] for r in vagas + extras})
             item["vagas"] = vagas
+            item["extras"] = extras
             item["cpf_fmt"] = formatar_cpf(item.get("cpf"))
             item["identificado"] = not _eh_placeholder(item.get("nome"), item.get("codigo"))
             if item.get("cpf") and not item.get("acesso_token"):
@@ -862,6 +900,11 @@ def quadro(municipio_id: int):
                         "codigo": d["apl_codigo"],
                         "nome": d["apl_nome"] or d["apl_codigo"],
                     },
+                    "n_extras": d.get("n_extras") or 0,
+                    "extras": d.get("extras") or [],
+                    "extras_preenchidos": d.get("extras_preenchidos") or 0,
+                    "extras_faltam": d.get("extras_faltam") or 0,
+                    "extras_tem_choque": bool(d.get("extras_tem_choque")),
                 }
             )
 
@@ -898,7 +941,11 @@ def candidatos(vaga_id: int, data: str | None = None):
         d = enriquecer_vaga(conn, dict(vaga))
         if data:
             d["data"] = data[:10]
-        return {"vaga": d, "candidatos": candidatos_para_vaga(conn, vaga_id, data)}
+        return {
+            "vaga": d,
+            "candidatos": candidatos_para_vaga(conn, vaga_id, data),
+            "candidatos_extra": candidatos_para_extra(conn, vaga_id, data),
+        }
 
 
 @app.post("/api/vagas/{vaga_id}/substituir")
@@ -923,6 +970,33 @@ def api_alocar(vaga_id: int, body: AlocarBody):
         )
         if not resultado.get("ok"):
             raise HTTPException(409, resultado.get("erro") or "Não foi possível alocar.")
+        return resultado
+
+
+@app.post("/api/vagas/{vaga_id}/n-extras")
+def api_n_extras(vaga_id: int, body: NExtrasBody):
+    with get_db() as conn:
+        resultado = definir_n_extras(conn, vaga_id, body.n_extras)
+        if not resultado.get("ok"):
+            raise HTTPException(400, resultado.get("erro") or "Não foi possível gravar os extras.")
+        return resultado
+
+
+@app.post("/api/vagas/{vaga_id}/extras")
+def api_alocar_extra(vaga_id: int, body: ExtraBody):
+    with get_db() as conn:
+        resultado = alocar_extra(conn, vaga_id, body.aplicador_id, body.forcar)
+        if not resultado.get("ok"):
+            raise HTTPException(409, resultado.get("erro") or "Não foi possível encaixar o extra.")
+        return resultado
+
+
+@app.delete("/api/vagas/{vaga_id}/extras/{aplicador_id}")
+def api_remover_extra(vaga_id: int, aplicador_id: int):
+    with get_db() as conn:
+        resultado = remover_extra(conn, vaga_id, aplicador_id)
+        if not resultado.get("ok"):
+            raise HTTPException(404, resultado.get("erro") or "Extra não encontrado.")
         return resultado
 
 
