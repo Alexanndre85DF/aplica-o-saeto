@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 import random
 
+from .cadastro import _tipo_de
 from .regras import (
     dia_vizinho,
     dias_do_municipio,
@@ -539,6 +540,7 @@ def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[d
                 "nome": a["nome"] or a["codigo"],
                 "carga": len(titular_slots),
                 "carga_extra": len(extra_slots),
+                "cadastro_extra": _tipo_de(a) == "EXTRA",
                 "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": ok,
                 "choques": checagem["choques"],
@@ -546,7 +548,16 @@ def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[d
                 "selecionado": checagem["ja_extra"],
             }
         )
-    lista.sort(key=lambda x: (not x["selecionado"], not x["ok"], not x["no_municipio"], x["carga"], x["nome"]))
+    lista.sort(
+        key=lambda x: (
+            not x["selecionado"],
+            not x["cadastro_extra"],
+            not x["ok"],
+            not x["no_municipio"],
+            x["carga"],
+            x["nome"],
+        )
+    )
     return lista
 
 
@@ -598,9 +609,11 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
         vaga["data"] = data[:10]
     dia = vaga.get("data")
 
-    aplicadores = conn.execute(
-        "SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo"
-    ).fetchall()
+    aplicadores = [
+        a
+        for a in conn.execute("SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo")
+        if _tipo_de(a) != "EXTRA"
+    ]
     agenda = _agenda_ocupadas(conn)
     par_row = _par_da_vaga(conn, vaga)
 
@@ -999,9 +1012,11 @@ def organizar(
     ]
     random.shuffle(vagas)
 
-    aplicadores = list(
-        conn.execute("SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo")
-    )
+    aplicadores = [
+        a
+        for a in conn.execute("SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo")
+        if _tipo_de(a) != "EXTRA"
+    ]
     if aplicador_ids:
         ids = {int(i) for i in aplicador_ids}
         aplicadores = [a for a in aplicadores if a["id"] in ids]

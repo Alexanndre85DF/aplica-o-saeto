@@ -314,17 +314,25 @@ def excluir_escola(conn, escola_id: int) -> None:
     conn.execute("DELETE FROM escolas WHERE id = ?", (escola_id,))
 
 
-def criar_lote_aplicadores(conn, quantidade: int) -> dict:
+def criar_lote_aplicadores(conn, quantidade: int, tipo: str = "APLICADOR") -> dict:
     qtd = int(quantidade or 0)
     if qtd < 1:
         raise ValueError("Informe quantos aplicadores criar, por exemplo 15.")
     if qtd > 200:
         raise ValueError("No máximo 200 de uma vez.")
+    tipo = _tipo_apl(tipo)
+    rotulo = "extras" if tipo == "EXTRA" else "aplicadores"
     from .db import sincronizar_sequencias
 
     sincronizar_sequencias(conn)
     usados = set()
-    for r in conn.execute("SELECT codigo, numero FROM aplicadores"):
+    try:
+        rows_tipo = conn.execute("SELECT codigo, numero, tipo FROM aplicadores")
+    except Exception:
+        rows_tipo = conn.execute("SELECT codigo, numero FROM aplicadores")
+    for r in rows_tipo:
+        if _tipo_de(r) != tipo:
+            continue
         n = r["numero"] if r["numero"] is not None else numero_do_codigo(r["codigo"])
         if n:
             usados.add(int(n))
@@ -336,14 +344,14 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
         n += 1
     criados = []
     for n in numeros:
-        codigo = codigo_do_numero(n)
+        codigo = codigo_do_numero(n, tipo)
         if conn.execute("SELECT id FROM aplicadores WHERE codigo = ?", (codigo,)).fetchone():
             continue
         try:
             conn.execute(
-                """INSERT INTO aplicadores(codigo, nome, numero, ativo)
-                   VALUES (?, ?, ?, 1)""",
-                (codigo, codigo, n),
+                """INSERT INTO aplicadores(codigo, nome, numero, tipo, ativo)
+                   VALUES (?, ?, ?, ?, 1)""",
+                (codigo, codigo, n, tipo),
             )
         except Exception as exc:
             texto = str(exc).lower()
@@ -353,9 +361,9 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
                     continue
                 try:
                     conn.execute(
-                        """INSERT INTO aplicadores(codigo, nome, numero, ativo)
-                           VALUES (?, ?, ?, 1)""",
-                        (codigo, codigo, n),
+                        """INSERT INTO aplicadores(codigo, nome, numero, tipo, ativo)
+                           VALUES (?, ?, ?, ?, 1)""",
+                        (codigo, codigo, n, tipo),
                     )
                 except Exception as retry:
                     raise ValueError(
@@ -372,7 +380,9 @@ def criar_lote_aplicadores(conn, quantidade: int) -> dict:
         "inicio": criados[0]["numero"],
         "fim": criados[-1]["numero"],
         "quantidade": len(criados),
+        "tipo": tipo,
         "criados": criados,
+        "rotulo": rotulo,
     }
 
 
@@ -388,8 +398,24 @@ def numero_do_codigo(codigo: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def codigo_do_numero(numero: int) -> str:
-    return f"Aplicador {int(numero):02d}"
+def _tipo_apl(valor: str | None) -> str:
+    texto = (valor or "").strip().upper()
+    return "EXTRA" if texto == "EXTRA" else "APLICADOR"
+
+
+def _tipo_de(row) -> str:
+    try:
+        tipo = row["tipo"]
+    except (KeyError, IndexError, TypeError):
+        tipo = None
+    if tipo:
+        return _tipo_apl(tipo)
+    return "EXTRA" if str(row["codigo"] or "").upper().startswith("EXTRA") else "APLICADOR"
+
+
+def codigo_do_numero(numero: int, tipo: str = "APLICADOR") -> str:
+    prefixo = "Extra" if _tipo_apl(tipo) == "EXTRA" else "Aplicador"
+    return f"{prefixo} {int(numero):02d}"
 
 
 def formatar_cpf(digitos: str | None) -> str:
@@ -420,10 +446,11 @@ def _eh_placeholder(nome: str | None, codigo: str | None) -> bool:
         return True
     if codigo and texto.upper() == codigo.upper():
         return True
-    return bool(re.match(r"^(aplicador|ap)\s*\d+$", texto, re.I))
+    return bool(re.match(r"^(aplicador|ap|extra)\s*\d+$", texto, re.I))
 
 
-def achar_por_numero(conn, numero: int):
+def achar_por_numero(conn, numero: int, tipo: str | None = None):
+    tipo = _tipo_apl(tipo) if tipo else None
     rows = list(
         conn.execute(
             "SELECT * FROM aplicadores WHERE numero = ? ORDER BY codigo", (numero,)
@@ -435,9 +462,11 @@ def achar_por_numero(conn, numero: int):
             for r in conn.execute("SELECT * FROM aplicadores")
             if numero_do_codigo(r["codigo"]) == numero
         ]
+    if tipo:
+        rows = [r for r in rows if _tipo_de(r) == tipo]
     if not rows:
         return None
-    alvo = codigo_do_numero(numero).upper()
+    alvo = codigo_do_numero(numero, tipo or "APLICADOR").upper()
     for r in rows:
         if (r["codigo"] or "").upper() == alvo:
             return r
@@ -449,6 +478,7 @@ def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict
     if not nome:
         raise ValueError("Informe o nome do aplicador.")
     codigo = normalizar_texto(codigo) if codigo else None
+    tipo = "EXTRA" if (codigo or "").upper().startswith("EXTRA") else "APLICADOR"
     if numero is None or numero == "":
         numero = numero_do_codigo(codigo) if codigo else None
     else:
@@ -465,7 +495,7 @@ def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict
             "SELECT * FROM aplicadores WHERE codigo = ?", (codigo,)
         ).fetchone()
     if not alvo:
-        alvo = achar_por_numero(conn, numero)
+        alvo = achar_por_numero(conn, numero, tipo)
 
     if cpf_n:
         outro = conn.execute(
@@ -476,9 +506,9 @@ def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict
 
     if not alvo:
         cur = conn.execute(
-            """INSERT INTO aplicadores(codigo, nome, cpf, numero, ativo)
-               VALUES (?, ?, ?, ?, 1)""",
-            (codigo or codigo_do_numero(numero), nome, cpf_n, numero),
+            """INSERT INTO aplicadores(codigo, nome, cpf, numero, tipo, ativo)
+               VALUES (?, ?, ?, ?, ?, 1)""",
+            (codigo or codigo_do_numero(numero, tipo), nome, cpf_n, numero, tipo),
         )
         aplicador_id = cur.lastrowid
     else:
@@ -504,7 +534,9 @@ def desvincular_pessoa(conn, aplicador_id: int) -> dict:
     if not atual:
         raise LookupError("Aplicador não encontrado.")
     numero = atual["numero"] if atual["numero"] is not None else numero_do_codigo(atual["codigo"])
-    codigo = atual["codigo"] or (codigo_do_numero(int(numero)) if numero else "Aplicador")
+    codigo = atual["codigo"] or (
+        codigo_do_numero(int(numero), _tipo_de(atual)) if numero else "Aplicador"
+    )
     conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
     conn.execute(
         """UPDATE aplicadores

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS aplicadores (
     cpf TEXT,
     numero INTEGER,
     acesso_token TEXT,
+    tipo TEXT NOT NULL DEFAULT 'APLICADOR',
     ativo INTEGER NOT NULL DEFAULT 1
 );
 
@@ -109,6 +110,7 @@ CREATE TABLE IF NOT EXISTS aplicadores (
     cpf TEXT,
     numero INTEGER,
     acesso_token TEXT,
+    tipo TEXT NOT NULL DEFAULT 'APLICADOR',
     ativo INTEGER NOT NULL DEFAULT 1
 );
 
@@ -589,6 +591,7 @@ def _ensure_colunas_postgres(conn) -> None:
         "ALTER TABLE aplicadores ADD COLUMN IF NOT EXISTS cpf TEXT",
         "ALTER TABLE aplicadores ADD COLUMN IF NOT EXISTS numero INTEGER",
         "ALTER TABLE aplicadores ADD COLUMN IF NOT EXISTS acesso_token TEXT",
+        "ALTER TABLE aplicadores ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'APLICADOR'",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS finalizado_em TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS turma TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS n_alunos INTEGER",
@@ -638,6 +641,10 @@ def ensure_colunas(conn) -> None:
         conn.execute("ALTER TABLE aplicadores ADD COLUMN numero INTEGER")
     if "acesso_token" not in cols:
         conn.execute("ALTER TABLE aplicadores ADD COLUMN acesso_token TEXT")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(aplicadores)")}
+    if "tipo" not in cols:
+        conn.execute("ALTER TABLE aplicadores ADD COLUMN tipo TEXT DEFAULT 'APLICADOR'")
+        conn.execute("UPDATE aplicadores SET tipo = 'APLICADOR' WHERE tipo IS NULL")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS sessoes_acesso (
             token TEXT PRIMARY KEY,
@@ -819,7 +826,7 @@ def _migrar_sqlite_se_postgres_vazio() -> None:
                     src,
                     pg,
                     "aplicadores",
-                    ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo"],
+                    ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo", "tipo"],
                 )
             if "viagens" in tabelas:
                 _copiar_tabela(

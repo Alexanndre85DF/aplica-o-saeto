@@ -48,6 +48,7 @@ from .cadastro import (
     desvincular_pessoa,
     _eh_placeholder,
     consolidar_municipios,
+    _tipo_de,
     criar_escola,
     criar_municipio,
     criar_vaga,
@@ -114,6 +115,7 @@ class AplicadorBody(BaseModel):
 
 class LoteAplicadoresBody(BaseModel):
     quantidade: int
+    tipo: str | None = "APLICADOR"
 
 
 class VincularBody(BaseModel):
@@ -572,15 +574,19 @@ def escolas(municipio_id: int | None = None):
 
 
 @app.get("/api/aplicadores")
-def aplicadores(lista: bool = False):
+def aplicadores(lista: bool = False, tipo: str | None = None):
+    tipo_filtro = (tipo or "APLICADOR").strip().upper()
+    if tipo_filtro not in {"APLICADOR", "EXTRA"}:
+        tipo_filtro = "APLICADOR"
     with get_db() as conn:
         if lista:
             pessoas = rows_to_dicts(
                 conn.execute(
-                    """SELECT id, codigo, nome, ativo, numero FROM aplicadores
+                    """SELECT * FROM aplicadores
                        ORDER BY COALESCE(numero, 9999), codigo"""
                 )
             )
+            pessoas = [p for p in pessoas if _tipo_de(p) == tipo_filtro]
             for item in pessoas:
                 item["identificado"] = not _eh_placeholder(item.get("nome"), item.get("codigo"))
             return pessoas
@@ -589,6 +595,7 @@ def aplicadores(lista: bool = False):
                 "SELECT * FROM aplicadores ORDER BY COALESCE(numero, 9999), codigo"
             )
         )
+        pessoas = [p for p in pessoas if _tipo_de(p) == tipo_filtro]
         por_apl: dict[int, list] = {}
         por_extra: dict[int, list] = {}
         for r in rows_to_dicts(
@@ -744,7 +751,7 @@ def api_excluir_escola(escola_id: int):
 def api_lote_aplicadores(body: LoteAplicadoresBody):
     with get_db() as conn:
         try:
-            return criar_lote_aplicadores(conn, body.quantidade)
+            return criar_lote_aplicadores(conn, body.quantidade, body.tipo or "APLICADOR")
         except Exception as exc:
             _cadastro_erro(exc)
 

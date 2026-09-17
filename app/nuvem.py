@@ -9,7 +9,7 @@ from .config import SUPABASE_KEY, SUPABASE_URL
 TABELAS = [
     ("municipios", ["id", "nome"]),
     ("escolas", ["id", "codigo", "nome", "municipio_id", "rede", "rural"]),
-    ("aplicadores", ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo"]),
+    ("aplicadores", ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo", "tipo"]),
     ("viagens", ["id", "municipio_id", "data_saida", "data_retorno", "dias_aplicacao"]),
     ("vagas", [
         "id",

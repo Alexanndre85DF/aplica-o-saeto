@@ -125,7 +125,8 @@ function mostrarView(view, extra = {}) {
   if (view === "campo") carregarCampo();
   if (view === "provas") carregarProvas();
   if (view === "cadastro") carregarCadastro();
-  if (view === "aplicadores") carregarAplicadores();
+  if (view === "aplicadores") carregarAplicadores("APLICADOR");
+  if (view === "extras") carregarAplicadores("EXTRA");
   if (view === "escolas") carregarEscolas();
 }
 
@@ -231,6 +232,17 @@ async function abrirVaga(vagaId) {
       <input type="date" id="vaga-data" value="${dataPadrao}" ${minData ? `min="${minData}"` : ""} ${maxData ? `max="${maxData}"` : ""} />
     </label>
     <button type="button" class="btn sm" id="btn-salvar-data" style="margin:8px 0 12px">Salvar data</button>
+    <section class="bloco-extras">
+      <h3>Aplicadores extras</h3>
+      <p class="escola-meta">Acompanham alunos especiais. Pegam a prova no bloco do titular. Não confirmam aplicação nem recebem prova na SRE.</p>
+      <label class="campo">Alunos especiais
+        <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
+      </label>
+      <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>
+      <p class="escola-meta">${extras.length} de ${nEx} extra(s) encaixado(s). Inclua um por um.</p>
+      ${listaExtras || (nEx ? "<p class='escola-meta'>Nenhum extra nesta turma ainda.</p>" : "<p class='escola-meta'>Informe quantos alunos especiais e salve a quantidade.</p>")}
+      ${nEx > 0 ? `<h3>Quem pode entrar como extra</h3><div id="lista-extras">${extraCands}</div>` : ""}
+    </section>
     ${problemas ? `<ul>${problemas}</ul>` : ""}
     <p>${
       v.status === "FINALIZADA"
@@ -256,17 +268,6 @@ async function abrirVaga(vagaId) {
     </div>` : ""}
     <h3>Quem pode entrar</h3>
     <div id="lista-cands">${cands}</div>
-    <section class="bloco-extras">
-      <h3>Aplicadores extras</h3>
-      <p class="escola-meta">Acompanham alunos especiais. Pegam a prova no bloco do titular. Não confirmam aplicação nem recebem prova na SRE.</p>
-      <label class="campo">Alunos especiais
-        <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
-      </label>
-      <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>
-      <p class="escola-meta">${extras.length} de ${nEx} extra(s) encaixado(s). Inclua um por um.</p>
-      ${listaExtras || (nEx ? "<p class='escola-meta'>Nenhum extra nesta turma ainda.</p>" : "<p class='escola-meta'>Informe quantos alunos especiais e salve a quantidade.</p>")}
-      ${nEx > 0 ? `<h3>Quem pode entrar como extra</h3><div id="lista-extras">${extraCands}</div>` : ""}
-    </section>
   `;
 
   const dataEscolhida = () => $("#vaga-data")?.value || null;
@@ -1156,9 +1157,7 @@ async function pintarQuadro(preloaded = null) {
                   ${!s.vago && s.aplicador && s.aplicador.codigo && nomeApl(s.aplicador) !== s.aplicador.codigo
                     ? `<div class="escola-meta">${s.aplicador.codigo}</div>`
                     : ""}
-                  ${Number(s.n_extras) > 0
-                    ? `<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">Extras ${s.extras_preenchidos || 0}/${s.n_extras}</div>`
-                    : ""}
+                  ${`<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">Extras ${s.extras_preenchidos || 0}/${s.n_extras || 0}</div>`}
                 </button>`;
             })
             .join("");
@@ -1211,9 +1210,16 @@ function escHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
-async function carregarAplicadores() {
-  titulo("Aplicadores", "Crie os números do cronograma, aloque no quadro e depois vincule o nome de cada pessoa.");
-  const lista = await api("/api/aplicadores");
+async function carregarAplicadores(tipo = "APLICADOR") {
+  const extra = tipo === "EXTRA";
+  const destino = extra ? "#view-extras" : "#view-aplicadores";
+  titulo(
+    extra ? "Aplicadores extras" : "Aplicadores",
+    extra
+      ? "Crie os números Extra 01, Extra 02…, vincule o nome e o CPF. Depois, no quadro, abra a turma e encaixe um por um."
+      : "Crie os números do cronograma, aloque no quadro e depois vincule o nome de cada pessoa."
+  );
+  const lista = await api(`/api/aplicadores?tipo=${extra ? "EXTRA" : "APLICADOR"}`);
   const pendentes = lista.filter((a) => !a.identificado).length;
   const linkGeral = `${location.origin}/acesso`;
   const maxN = lista.reduce((m, a) => Math.max(m, Number(a.numero) || 0), 0);
@@ -1226,18 +1232,20 @@ async function carregarAplicadores() {
         })
         .join("")
     : `<option value="" disabled selected>Crie os números primeiro</option>`;
-  $("#view-aplicadores").innerHTML = `
+  $(destino).innerHTML = `
     <section class="panel" style="margin-bottom:16px">
-      <h2>Criar números de aplicador</h2>
+      <h2>${extra ? "Criar números de extra" : "Criar números de aplicador"}</h2>
       <p class="escola-meta" style="margin-bottom:12px">
-        Informe quantos quer incluir. Números que faltam (se alguém apagou o 03, por exemplo) voltam primeiro; depois segue o próximo livre.
+        ${extra
+          ? "Informe quantos extras quer incluir. Extra não fica com a prova: acompanha aluno especial na turma do aplicador titular."
+          : "Informe quantos quer incluir. Números que faltam (se alguém apagou o 03, por exemplo) voltam primeiro; depois segue o próximo livre."}
         O número do cronograma permanece. Para trocar a pessoa, use <b>Limpar nome</b> e vincule outra.
       </p>
       <form id="form-lote" class="form-grid">
         <label class="campo">Quantidade
           <input name="quantidade" type="number" min="1" max="200" required placeholder="Ex.: 15" />
         </label>
-        <button class="btn" type="submit">Gerar aplicadores</button>
+        <button class="btn" type="submit">${extra ? "Gerar extras" : "Gerar aplicadores"}</button>
       </form>
     </section>
     <section class="panel" style="margin-bottom:16px">
@@ -1254,7 +1262,7 @@ async function carregarAplicadores() {
         <label class="campo">Número no cronograma
           <select name="codigo" ${lista.length ? "required" : "disabled"}>${opts}</select>
         </label>
-        <button class="btn gold" type="submit">Vincular no quadro</button>
+        <button class="btn gold" type="submit">${extra ? "Vincular extra" : "Vincular no quadro"}</button>
       </form>
     </section>
     <div class="toolbar">
@@ -1287,10 +1295,11 @@ async function carregarAplicadores() {
     try {
       const r = await api("/api/aplicadores/lote", {
         method: "POST",
-        body: JSON.stringify({ quantidade: qtd }),
+        body: JSON.stringify({ quantidade: qtd, tipo: extra ? "EXTRA" : "APLICADOR" }),
       });
-      alert(`Criados Aplicador ${String(r.inicio).padStart(2, "0")} até Aplicador ${String(r.fim).padStart(2, "0")} (${r.quantidade}). Números que faltavam na ordem entram primeiro.`);
-      carregarAplicadores();
+      const prefixo = extra ? "Extra" : "Aplicador";
+      alert(`Criados ${prefixo} ${String(r.inicio).padStart(2, "0")} até ${prefixo} ${String(r.fim).padStart(2, "0")} (${r.quantidade}). Números que faltavam na ordem entram primeiro.`);
+      carregarAplicadores(tipo);
     } catch (err) {
       alert(err.message);
     }
@@ -1318,7 +1327,7 @@ async function carregarAplicadores() {
           ? `${r.nome} ficou como ${r.codigo}.\n\nLink de acesso:\n${location.origin}/acesso/${r.acesso_token}`
           : `${r.nome} ficou como ${r.codigo} no quadro.`
       );
-      carregarAplicadores();
+      carregarAplicadores(tipo);
     } catch (err) {
       alert(err.message);
     }
@@ -1336,7 +1345,7 @@ async function carregarAplicadores() {
           <td>${escHtml(a.codigo)}${a.identificado ? "" : ' <span class="chip vago">sem nome</span>'}</td>
           <td><input class="nome-apl" data-id="${a.id}" value="${escHtml(nomeMostrar)}" placeholder="Nome da pessoa" /></td>
           <td><input class="cpf-apl" data-id="${a.id}" value="${escHtml(a.cpf_fmt || "")}" placeholder="000.000.000-00" maxlength="14" /></td>
-          <td>${a.carga} turma(s)${a.carga_extra ? " + " + a.carga_extra + " extra(s)" : ""} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
+          <td>${extra ? (a.carga_extra || 0) + " extra(s)" : `${a.carga} turma(s)${a.carga_extra ? " + " + a.carga_extra + " extra(s)" : ""}`} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
           <td>${
             a.acesso_token
               ? `<button class="btn sm ghost" data-link="${escHtml(a.acesso_token)}">Copiar link</button>`
@@ -1384,7 +1393,7 @@ async function carregarAplicadores() {
             method: "PATCH",
             body: JSON.stringify({ nome, cpf }),
           });
-          carregarAplicadores();
+          carregarAplicadores(tipo);
         } catch (err) {
           alert(err.message);
         }
@@ -1400,7 +1409,7 @@ async function carregarAplicadores() {
             method: "PATCH",
             body: JSON.stringify({ nome: "" }),
           });
-          carregarAplicadores();
+          carregarAplicadores(tipo);
         } catch (err) {
           alert(err.message);
         }
@@ -1417,7 +1426,7 @@ async function carregarAplicadores() {
         if (!confirm(aviso)) return;
         try {
           await api(`/api/aplicadores/${id}`, { method: "DELETE" });
-          carregarAplicadores();
+          carregarAplicadores(tipo);
         } catch (err) {
           alert(err.message);
         }
