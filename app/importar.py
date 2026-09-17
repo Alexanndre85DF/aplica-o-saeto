@@ -106,8 +106,11 @@ def salvar_planilha_atual(origem: Path) -> Path:
 
 def completar_planilha(caminho: Path) -> dict:
     wb = load_workbook(caminho, data_only=True)
-    from .homologacao import eh_planilha_homologacao, importar_homologacao
+    from .homologacao import eh_planilha_caed, eh_planilha_homologacao, importar_caed, importar_homologacao
 
+    if eh_planilha_caed(wb):
+        with get_db() as conn:
+            return importar_caed(caminho, conn)
     if not eh_planilha_homologacao(wb):
         raise ValueError("A planilha salva não é a de homologação de turmas.")
     with get_db() as conn:
@@ -116,7 +119,11 @@ def completar_planilha(caminho: Path) -> dict:
 
 def importar_planilha(caminho: Path) -> dict:
     wb = load_workbook(caminho, data_only=True)
-    from .homologacao import eh_planilha_homologacao, importar_homologacao
+    from .homologacao import eh_planilha_caed, eh_planilha_homologacao, importar_caed, importar_homologacao
+
+    if eh_planilha_caed(wb):
+        with get_db() as conn:
+            return importar_caed(caminho, conn)
 
     if eh_planilha_homologacao(wb):
         with get_db() as conn:

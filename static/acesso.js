@@ -117,6 +117,8 @@ document.getElementById("form-presentes").addEventListener("submit", async (ev) 
   }
 });
 
+let abaAtual = "aplicar";
+
 async function carregarPainel() {
   const dados = await req("/api/acesso/eu");
   login.classList.add("hidden");
@@ -135,15 +137,12 @@ async function carregarPainel() {
     box.innerHTML = "<p class='vazio'>Nenhuma aplicação ou extra atribuído a você ainda.</p>";
     return;
   }
+  if (abaAtual === "aplicar" && !aplicacoes.length) abaAtual = "extra";
+  if (abaAtual === "extra" && !extras.length && aplicacoes.length) abaAtual = "aplicar";
   const nPend = aplicacoes.filter((a) => !a.finalizada).length;
   const nFim = aplicacoes.length - nPend;
-  const avisoDois = aplicacoes.length && extras.length
-    ? `<p class="aviso-papeis">Um CPF, duas agendas. Em <b>Como aplicador</b> você recebe a prova e dá baixa. Em <b>Como extra</b> só visualiza o que acompanhar — sem baixa e sem recebimento.</p>`
-    : "";
   const htmlTitular = aplicacoes.length
-    ? `<section class="bloco-papel">
-        <h2>Como aplicador — prova e baixa</h2>
-        <p class="resumo-lista">${aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
+    ? `<p class="resumo-lista">${aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
       aplicacoes
         .map((a) => {
           const viagem = a.saida_fmt && a.saida_fmt !== "—"
@@ -175,13 +174,10 @@ async function carregarPainel() {
         </button>
       </article>`;
         })
-        .join("") +
-      `</section>`
-    : "";
+        .join("")
+    : "<p class='vazio'>Você não aplica em nenhuma turma. Extra fica na outra aba.</p>";
   const htmlExtras = extras.length
-    ? `<section class="bloco-papel extra-papel">
-        <h2>Como extra — só visualizar</h2>
-        <p class="resumo-lista">${extras.length} turma(s) · acompanhar aluno especial. Sem baixa e sem recebimento de prova.</p>` +
+    ? `<p class="resumo-lista">${extras.length} turma(s) · acompanhar aluno especial. Sem baixa e sem recebimento de prova.</p>` +
       extras
         .map((a) => {
           const titular = a.titular
@@ -199,10 +195,28 @@ async function carregarPainel() {
         </div>
       </article>`;
         })
-        .join("") +
-      `</section>`
-    : "";
-  box.innerHTML = avisoDois + htmlTitular + htmlExtras;
+        .join("")
+    : "<p class='vazio'>Nenhuma turma como extra. O que você aplica fica na outra aba.</p>";
+  box.innerHTML = `
+    <div class="abas" role="tablist">
+      <button type="button" class="aba ${abaAtual === "aplicar" ? "ativo" : ""}" data-aba="aplicar">
+        Aplicações (${aplicacoes.length})
+      </button>
+      <button type="button" class="aba ${abaAtual === "extra" ? "ativo" : ""}" data-aba="extra">
+        Extra (${extras.length})
+      </button>
+    </div>
+    <div id="aba-aplicar" class="aba-corpo ${abaAtual === "aplicar" ? "" : "hidden"}">${htmlTitular}</div>
+    <div id="aba-extra" class="aba-corpo extra-papel ${abaAtual === "extra" ? "" : "hidden"}">${htmlExtras}</div>
+  `;
+  box.querySelectorAll(".aba").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      abaAtual = btn.dataset.aba;
+      box.querySelectorAll(".aba").forEach((b) => b.classList.toggle("ativo", b === btn));
+      document.getElementById("aba-aplicar").classList.toggle("hidden", abaAtual !== "aplicar");
+      document.getElementById("aba-extra").classList.toggle("hidden", abaAtual !== "extra");
+    });
+  });
   box.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";
