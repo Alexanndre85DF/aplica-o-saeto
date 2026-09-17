@@ -127,14 +127,23 @@ async function carregarPainel() {
   const box = document.getElementById("lista-apps");
   const aplicacoes = dados.aplicacoes || [];
   const extras = dados.extras || [];
+  if (aplicacoes.length && extras.length) {
+    document.getElementById("codigo-apl").textContent =
+      `${dados.aplicador.codigo || ""} · aplicador e extra`;
+  }
   if (!aplicacoes.length && !extras.length) {
     box.innerHTML = "<p class='vazio'>Nenhuma aplicação ou extra atribuído a você ainda.</p>";
     return;
   }
   const nPend = aplicacoes.filter((a) => !a.finalizada).length;
   const nFim = aplicacoes.length - nPend;
+  const avisoDois = aplicacoes.length && extras.length
+    ? `<p class="aviso-papeis">Um CPF, duas agendas. Em <b>Como aplicador</b> você recebe a prova e dá baixa. Em <b>Como extra</b> só visualiza o que acompanhar — sem baixa e sem recebimento.</p>`
+    : "";
   const htmlTitular = aplicacoes.length
-    ? `<p class="resumo-lista">${aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
+    ? `<section class="bloco-papel">
+        <h2>Como aplicador — prova e baixa</h2>
+        <p class="resumo-lista">${aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
       aplicacoes
         .map((a) => {
           const viagem = a.saida_fmt && a.saida_fmt !== "—"
@@ -166,30 +175,34 @@ async function carregarPainel() {
         </button>
       </article>`;
         })
-        .join("")
+        .join("") +
+      `</section>`
     : "";
   const htmlExtras = extras.length
-    ? `<p class="resumo-lista">${extras.length} extra(s) · acompanha aluno especial</p>` +
+    ? `<section class="bloco-papel extra-papel">
+        <h2>Como extra — só visualizar</h2>
+        <p class="resumo-lista">${extras.length} turma(s) · acompanhar aluno especial. Sem baixa e sem recebimento de prova.</p>` +
       extras
         .map((a) => {
           const titular = a.titular
             ? `Pegue a prova específica no bloco de ${a.titular.nome}${a.titular.codigo ? " · " + a.titular.codigo : ""}.`
             : "A turma ainda não tem aplicador titular. A prova sai do bloco dele quando for alocado.";
           return `<article class="app extra">
-        <span class="chip extra">Extra</span>
+        <span class="chip extra">Extra · ciência</span>
         <b>${tit(a.escola)}</b>
         <div class="meta">
           ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
           <b>${a.serie}${a.turma ? " — " + a.turma : ""}</b>
           ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
           <br />${titular}
-          <br />Você não confirma a aplicação nem recebe prova na SRE.
+          <br />Aqui você só vê a agenda. Quem aplica e dá baixa é o titular da turma.
         </div>
       </article>`;
         })
-        .join("")
+        .join("") +
+      `</section>`
     : "";
-  box.innerHTML = htmlTitular + htmlExtras;
+  box.innerHTML = avisoDois + htmlTitular + htmlExtras;
   box.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";

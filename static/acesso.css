@@ -182,8 +182,27 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .erro { color: var(--choque); font-weight: 700; }
 .hidden { display: none !important; }
 .vazio { margin-top: 18px; color: var(--soft); }
+.aviso-papeis {
+  margin: 14px 0 0;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--ink);
+}
+.bloco-papel {
+  margin-top: 14px;
+  padding: 10px;
+  background: var(--face);
+  box-shadow: var(--sunken);
+}
+.bloco-papel h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.bloco-papel.extra-papel {
+  background: #fffbeb;
+}
 .resumo-lista {
-  margin: 12px 0 0;
+  margin: 8px 0 0;
   font-weight: 700;
   font-size: 12px;
 }

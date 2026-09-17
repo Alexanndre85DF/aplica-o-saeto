@@ -234,7 +234,7 @@ async function abrirVaga(vagaId) {
     <button type="button" class="btn sm" id="btn-salvar-data" style="margin:8px 0 12px">Salvar data</button>
     <section class="bloco-extras">
       <h3>Aplicadores extras</h3>
-      <p class="escola-meta">Acompanham alunos especiais. Pegam a prova no bloco do titular. Não confirmam aplicação nem recebem prova na SRE.</p>
+      <p class="escola-meta">A mesma pessoa pode aplicar numa turma e ser extra em outra. Extra pega a prova no bloco do titular. Não dá baixa nem recebe prova na SRE.</p>
       <label class="campo">Alunos especiais
         <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
       </label>
@@ -1216,8 +1216,8 @@ async function carregarAplicadores(tipo = "APLICADOR") {
   titulo(
     extra ? "Aplicadores extras" : "Aplicadores",
     extra
-      ? "Crie os números Extra 01, Extra 02…, vincule o nome e o CPF. Depois, no quadro, abra a turma e encaixe um por um."
-      : "Crie os números do cronograma, aloque no quadro e depois vincule o nome de cada pessoa."
+      ? "Extra também é aplicador: um CPF. Se a pessoa já está em Aplicadores, não cadastre de novo — encaixe o mesmo número na turma como extra."
+      : "Crie os números do cronograma, aloque no quadro e depois vincule o nome de cada pessoa. A mesma pessoa pode ser extra em outra turma."
   );
   const lista = await api(`/api/aplicadores?tipo=${extra ? "EXTRA" : "APLICADOR"}`);
   const pendentes = lista.filter((a) => !a.identificado).length;
@@ -1237,7 +1237,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
       <h2>${extra ? "Criar números de extra" : "Criar números de aplicador"}</h2>
       <p class="escola-meta" style="margin-bottom:12px">
         ${extra
-          ? "Informe quantos extras quer incluir. Extra não fica com a prova: acompanha aluno especial na turma do aplicador titular."
+          ? "Informe quantos extras quer incluir. Extra acompanha aluno especial. No acesso, o CPF mostra separado: turmas em que aplica (baixa) e turmas em que é extra (só ver)."
           : "Informe quantos quer incluir. Números que faltam (se alguém apagou o 03, por exemplo) voltam primeiro; depois segue o próximo livre."}
         O número do cronograma permanece. Para trocar a pessoa, use <b>Limpar nome</b> e vincule outra.
       </p>
@@ -1345,7 +1345,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
           <td>${escHtml(a.codigo)}${a.identificado ? "" : ' <span class="chip vago">sem nome</span>'}</td>
           <td><input class="nome-apl" data-id="${a.id}" value="${escHtml(nomeMostrar)}" placeholder="Nome da pessoa" /></td>
           <td><input class="cpf-apl" data-id="${a.id}" value="${escHtml(a.cpf_fmt || "")}" placeholder="000.000.000-00" maxlength="14" /></td>
-          <td>${extra ? (a.carga_extra || 0) + " extra(s)" : `${a.carga} turma(s)${a.carga_extra ? " + " + a.carga_extra + " extra(s)" : ""}`} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
+          <td>${a.carga || 0} turma(s)${a.carga_extra ? " + " + a.carga_extra + " extra(s)" : ""} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
           <td>${
             a.acesso_token
               ? `<button class="btn sm ghost" data-link="${escHtml(a.acesso_token)}">Copiar link</button>`

@@ -576,6 +576,16 @@ def _par_da_vaga(conn, vaga: dict) -> dict | None:
 
 
 def checar_alocacao(vaga: dict, aplicador_id: int, agenda: dict, par_row=None) -> dict:
+    if any(
+        o.get("papel") == "extra" and o.get("vaga_id") == vaga["id"]
+        for o in agenda.get(aplicador_id, [])
+    ):
+        choque = {
+            "tipo": "extra",
+            "grau": "choque",
+            "mensagem": "Este já está como extra nesta turma.",
+        }
+        return {"ok": False, "choques": [choque], "avisos": [], "problemas": [choque]}
     simulada = dict(vaga)
     simulada["aplicador_id"] = aplicador_id
     outros = [o for o in agenda.get(aplicador_id, []) if o["id"] != vaga["id"]]
@@ -609,11 +619,9 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
         vaga["data"] = data[:10]
     dia = vaga.get("data")
 
-    aplicadores = [
-        a
-        for a in conn.execute("SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo")
-        if _tipo_de(a) != "EXTRA"
-    ]
+    aplicadores = list(
+        conn.execute("SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo")
+    )
     agenda = _agenda_ocupadas(conn)
     par_row = _par_da_vaga(conn, vaga)
 
@@ -634,6 +642,7 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
                 "nome": a["nome"] or a["codigo"],
                 "carga": len(titular_slots),
                 "carga_extra": len(extra_slots),
+                "cadastro_extra": _tipo_de(a) == "EXTRA",
                 "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],
@@ -644,7 +653,16 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
             }
         )
 
-    lista.sort(key=lambda x: (not x["ok"], not x["no_municipio"], x["carga"], x["nome"]))
+    lista.sort(
+        key=lambda x: (
+            not x["selecionado"],
+            x["cadastro_extra"],
+            not x["ok"],
+            not x["no_municipio"],
+            x["carga"],
+            x["nome"],
+        )
+    )
     return lista
 
 
