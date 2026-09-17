@@ -503,8 +503,9 @@ def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict
         ).fetchone()
         if outro and (alvo is None or outro["id"] != alvo["id"]):
             raise ValueError(
-                f"Este CPF já está em {outro['nome'] or outro['codigo']}. "
-                "Não cadastre de novo: no quadro, encaixe essa mesma pessoa como extra ou como aplicador."
+                f"Este CPF já está em {outro['nome'] or outro['codigo']} ({outro['codigo']}). "
+                "Não use esta tela. Abra o Quadro de aplicação, clique na turma, "
+                "informe os alunos especiais e clique nessa pessoa na lista de extra."
             )
 
     if not alvo:

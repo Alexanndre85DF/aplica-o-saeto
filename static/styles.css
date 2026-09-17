@@ -551,8 +551,33 @@ table.grade {
 .slot .extras-linha { color: var(--gold); font-weight: 700; }
 .slot .extras-choque { color: var(--choque); }
 .slot.finalizada .extras-linha { color: #fde68a; }
-.bloco-extras { margin-top: 18px; padding-top: 12px; border-top: 1px solid #808080; }
-.bloco-extras h3 { margin: 12px 0 6px; }
+.bloco-papel-apl {
+  margin-top: 14px;
+  padding: 10px;
+  background: #fff;
+  box-shadow: var(--sunken);
+}
+.bloco-papel-apl h3 { margin: 0 0 6px; }
+.bloco-papel-apl #busca-apl {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 10px;
+}
+.bloco-extras {
+  margin-top: 18px;
+  padding: 10px;
+  background: #fffbeb;
+  box-shadow: var(--sunken);
+}
+.bloco-extras h3 { margin: 0 0 6px; }
+.bloco-extras #busca-extra {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 10px;
+}
+.cand.papel-extra { background: #fff7ed; }
+.cand.papel-apl { background: #fff; }
+.cand.cand-vazio { opacity: 0.7; }
 .extra-item {
   display: flex;
   justify-content: space-between;

@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 import random
 
-from .cadastro import _tipo_de
+from .cadastro import _eh_placeholder, _tipo_de
 from .regras import (
     dia_vizinho,
     dias_do_municipio,
@@ -533,6 +533,9 @@ def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[d
                         "mensagem": f"Esta turma já tem os {n} extra(s).",
                     }
                 ]
+        identificado = not _eh_placeholder(a["nome"], a["codigo"])
+        if not identificado and not checagem["ja_extra"]:
+            continue
         lista.append(
             {
                 "id": a["id"],
@@ -541,6 +544,7 @@ def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[d
                 "carga": len(titular_slots),
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
+                "identificado": identificado,
                 "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": ok,
                 "choques": checagem["choques"],
@@ -551,7 +555,7 @@ def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[d
     lista.sort(
         key=lambda x: (
             not x["selecionado"],
-            not x["cadastro_extra"],
+            not x["identificado"],
             not x["ok"],
             not x["no_municipio"],
             x["carga"],
@@ -633,6 +637,9 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
             o for o in slots if o["id"] != vaga["id"] and dia and o.get("data") == dia
         ]
         selecionado = a["id"] == vaga.get("aplicador_id")
+        identificado = not _eh_placeholder(a["nome"], a["codigo"])
+        if _tipo_de(a) == "EXTRA" and not identificado and not selecionado:
+            continue
         titular_slots = [o for o in slots if o.get("papel") != "extra"]
         extra_slots = [o for o in slots if o.get("papel") == "extra"]
         lista.append(
@@ -643,6 +650,7 @@ def candidatos_para_vaga(conn, vaga_id: int, data: str | None = None) -> list[di
                 "carga": len(titular_slots),
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
+                "identificado": identificado,
                 "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],

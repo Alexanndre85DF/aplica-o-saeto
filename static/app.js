@@ -125,8 +125,7 @@ function mostrarView(view, extra = {}) {
   if (view === "campo") carregarCampo();
   if (view === "provas") carregarProvas();
   if (view === "cadastro") carregarCadastro();
-  if (view === "aplicadores") carregarAplicadores("APLICADOR");
-  if (view === "extras") carregarAplicadores("EXTRA");
+  if (view === "aplicadores") carregarAplicadores();
   if (view === "escolas") carregarEscolas();
 }
 
@@ -203,8 +202,9 @@ async function abrirVaga(vagaId) {
     const motivo = c.ok
       ? `${cargaTxt}${c.no_municipio ? " · já neste município" : ""}`
       : (c.choques[0] && c.choques[0].mensagem) || "Indisponível";
+    const busca = `${c.nome || ""} ${c.codigo || ""}`.toLowerCase();
     return `<button class="cand ${c.ok ? "" : "choque"} ${c.selecionado ? "selecionado" : ""}"
-              data-id="${c.id}" data-ok="${c.ok ? "1" : "0"}">
+              data-id="${c.id}" data-ok="${c.ok ? "1" : "0"}" data-busca="${escHtml(busca)}">
               <b>${escHtml(rotuloCand(c))}</b>
               <small>${c.ok ? motivo : "Choque: " + motivo + " — clique para colocar mesmo assim"}</small>
             </button>`;
@@ -232,16 +232,33 @@ async function abrirVaga(vagaId) {
       <input type="date" id="vaga-data" value="${dataPadrao}" ${minData ? `min="${minData}"` : ""} ${maxData ? `max="${maxData}"` : ""} />
     </label>
     <button type="button" class="btn sm" id="btn-salvar-data" style="margin:8px 0 12px">Salvar data</button>
+    <section class="bloco-papel-apl">
+      <h3>1. Escolha o aplicador</h3>
+      <p class="escola-meta">${temAplicador ? `Aplicador desta turma: <b>${escHtml(nomeAtual)}</b>` : "Clique em quem aplica e dá baixa nesta turma. A janela não fecha: o extra vem depois."}</p>
+      ${temAplicador ? `<button class="btn gold" id="btn-substituir">Trocar aplicador</button>
+      <button class="btn ghost" id="btn-liberar">Tirar aplicador</button>
+      <div id="painel-substituir" class="painel-substituir hidden">
+        <h3>Trocar ${escHtml(nomeAtual)}</h3>
+        <p class="escola-meta" id="subst-ajuda">Só quem não tem nenhuma aplicação neste dia.</p>
+        <input type="text" id="busca-subst" placeholder="Buscar número ou nome" autocomplete="off" />
+        <div id="lista-subst"></div>
+      </div>` : `<input type="text" id="busca-apl" placeholder="Buscar aplicador" autocomplete="off" />
+      <div id="lista-cands">${cands}</div>`}
+    </section>
     <section class="bloco-extras">
-      <h3>Aplicadores extras</h3>
-      <p class="escola-meta">A mesma pessoa pode aplicar numa turma e ser extra em outra. Extra pega a prova no bloco do titular. Não dá baixa nem recebe prova na SRE.</p>
+      <h3>2. Depois, o extra</h3>
+      ${temAplicador ? `
+      <p class="escola-meta">Quantos alunos especiais? Salve. Depois busque pelo nome quem acompanha — a mesma lista de aplicadores.</p>
       <label class="campo">Alunos especiais
         <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
       </label>
       <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>
-      <p class="escola-meta">${extras.length} de ${nEx} extra(s) encaixado(s). Inclua um por um.</p>
-      ${listaExtras || (nEx ? "<p class='escola-meta'>Nenhum extra nesta turma ainda.</p>" : "<p class='escola-meta'>Informe quantos alunos especiais e salve a quantidade.</p>")}
-      ${nEx > 0 ? `<h3>Quem pode entrar como extra</h3><div id="lista-extras">${extraCands}</div>` : ""}
+      <p class="escola-meta">${extras.length} de ${nEx} extra(s) nesta turma.</p>
+      ${listaExtras || (nEx ? "<p class='escola-meta'>Nenhum extra ainda.</p>" : "<p class='escola-meta'>Se não tiver aluno especial, deixe 0.</p>")}
+      ${nEx > 0 ? `<input type="text" id="busca-extra" placeholder="Digite o nome de quem vai ser extra" autocomplete="off" />
+      <p id="dica-extra" class="escola-meta">Digite pelo menos 2 letras do nome.</p>
+      <div id="lista-extras">${extraCands}</div>` : ""}
+      ` : `<p class="escola-meta">Escolha o aplicador em cima. Aí você encaixa o extra aqui, se a turma tiver aluno especial.</p>`}
     </section>
     ${problemas ? `<ul>${problemas}</ul>` : ""}
     <p>${
@@ -256,18 +273,7 @@ async function abrirVaga(vagaId) {
       <input type="checkbox" id="repetir-par" checked />
       Repetir no Dia 1/Dia 2 do 2º ano, se houver
     </label>
-    ${temAplicador ? `<button class="btn gold" id="btn-substituir">Substituir aplicador</button>` : ""}
-    <button class="btn ghost" id="btn-liberar">Tirar aplicador (volta para Sem data)</button>
     <button class="btn warn" id="btn-excluir-vaga">Apagar turma do quadro</button>
-    ${temAplicador ? `
-    <div id="painel-substituir" class="painel-substituir hidden">
-      <h3>Trocar ${escHtml(nomeAtual)}</h3>
-      <p class="escola-meta" id="subst-ajuda">Só quem não tem nenhuma aplicação neste dia. O aplicador atual fica livre nesta vaga.</p>
-      <input type="text" id="busca-subst" placeholder="Buscar número ou nome" autocomplete="off" />
-      <div id="lista-subst"></div>
-    </div>` : ""}
-    <h3>Quem pode entrar</h3>
-    <div id="lista-cands">${cands}</div>
   `;
 
   const dataEscolhida = () => $("#vaga-data")?.value || null;
@@ -293,15 +299,17 @@ async function abrirVaga(vagaId) {
       alert(err.message);
     }
   };
-  $("#btn-liberar").onclick = async () => {
-    const repetir = $("#repetir-par").checked;
-    await api(`/api/vagas/${vagaId}/alocar`, {
-      method: "POST",
-      body: JSON.stringify({ aplicador_id: null, repetir_par: repetir }),
-    });
-    fecharDrawer();
-    mostrarView("quadro");
-  };
+  if ($("#btn-liberar")) {
+    $("#btn-liberar").onclick = async () => {
+      const repetir = $("#repetir-par").checked;
+      await api(`/api/vagas/${vagaId}/alocar`, {
+        method: "POST",
+        body: JSON.stringify({ aplicador_id: null, repetir_par: repetir }),
+      });
+      fecharDrawer();
+      mostrarView("quadro");
+    };
+  }
   $("#btn-excluir-vaga").onclick = async () => {
     if (!confirm("Isso APAGA a turma do quadro, não só o aplicador. Para só tirar a pessoa e a data, cancele e use Tirar aplicador. Apagar de vez?")) return;
     await api(`/api/vagas/${vagaId}`, { method: "DELETE" });
@@ -317,11 +325,19 @@ async function abrirVaga(vagaId) {
     fecharDrawer();
     mostrarView("quadro");
   };
+  const recarregarTurma = async () => {
+    if (state.municipioId) {
+      const q = await api(`/api/quadro?municipio_id=${state.municipioId}`);
+      await pintarQuadro(q);
+    }
+    await abrirVaga(vagaId);
+  };
+
   $$("#lista-cands .cand").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const repetir = $("#repetir-par").checked;
       const forcar = btn.dataset.ok !== "1";
-      if (forcar && !confirm("Este aplicador tem choque neste horário. Colocar mesmo assim? Depois você pode mover para outro dia ou outra vaga.")) return;
+      if (forcar && !confirm("Este aplicador tem choque neste horário. Colocar mesmo assim?")) return;
       try {
         await api(`/api/vagas/${vagaId}/alocar`, {
           method: "POST",
@@ -332,21 +348,12 @@ async function abrirVaga(vagaId) {
             forcar,
           }),
         });
-        fecharDrawer();
-        mostrarView("quadro");
+        await recarregarTurma();
       } catch (err) {
         alert(err.message);
       }
     });
   });
-
-  const recarregarTurma = async () => {
-    if (state.municipioId) {
-      const q = await api(`/api/quadro?municipio_id=${state.municipioId}`);
-      await pintarQuadro(q);
-    }
-    await abrirVaga(vagaId);
-  };
 
   $("#btn-salvar-extras")?.addEventListener("click", async () => {
     const n = Number($("#n-extras")?.value || 0);
@@ -388,6 +395,26 @@ async function abrirVaga(vagaId) {
       }
     });
   });
+  const filtrarExtras = () => {
+    const q = ($("#busca-extra")?.value || "").trim().toLowerCase();
+    const okBusca = q.length >= 2;
+    $$("#lista-extras .cand").forEach((btn) => {
+      const hay = (btn.dataset.busca || btn.textContent || "").toLowerCase();
+      btn.classList.toggle("hidden", !okBusca || !hay.includes(q));
+    });
+    const dica = $("#dica-extra");
+    if (dica) dica.classList.toggle("hidden", okBusca);
+  };
+  $("#busca-extra")?.addEventListener("input", filtrarExtras);
+  filtrarExtras();
+  const filtrarApl = () => {
+    const q = ($("#busca-apl")?.value || "").trim().toLowerCase();
+    $$("#lista-cands .cand").forEach((btn) => {
+      const hay = (btn.dataset.busca || btn.textContent || "").toLowerCase();
+      btn.classList.toggle("hidden", Boolean(q) && !hay.includes(q));
+    });
+  };
+  $("#busca-apl")?.addEventListener("input", filtrarApl);
 
   if (!temAplicador) return;
 
@@ -1210,19 +1237,14 @@ function escHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
-async function carregarAplicadores(tipo = "APLICADOR") {
-  const extra = tipo === "EXTRA";
-  const destino = extra ? "#view-extras" : "#view-aplicadores";
+async function carregarAplicadores() {
   titulo(
-    extra ? "Aplicadores extras" : "Aplicadores",
-    extra
-      ? "Extra também é aplicador: um CPF. Se a pessoa já está em Aplicadores, não cadastre de novo — encaixe o mesmo número na turma como extra."
-      : "Crie os números do cronograma, aloque no quadro e depois vincule o nome de cada pessoa. A mesma pessoa pode ser extra em outra turma."
+    "Aplicadores",
+    "Cadastre as pessoas uma vez. Extra não é outro cadastro: no quadro, depois do aplicador da turma, busque o mesmo nome para acompanhar aluno especial."
   );
-  const lista = await api(`/api/aplicadores?tipo=${extra ? "EXTRA" : "APLICADOR"}`);
+  const lista = await api("/api/aplicadores?tipo=APLICADOR");
   const pendentes = lista.filter((a) => !a.identificado).length;
   const linkGeral = `${location.origin}/acesso`;
-  const maxN = lista.reduce((m, a) => Math.max(m, Number(a.numero) || 0), 0);
   const opts = lista.length
     ? lista
         .map((a) => {
@@ -1232,20 +1254,18 @@ async function carregarAplicadores(tipo = "APLICADOR") {
         })
         .join("")
     : `<option value="" disabled selected>Crie os números primeiro</option>`;
-  $(destino).innerHTML = `
+  $("#view-aplicadores").innerHTML = `
     <section class="panel" style="margin-bottom:16px">
-      <h2>${extra ? "Criar números de extra" : "Criar números de aplicador"}</h2>
+      <h2>Criar números de aplicador</h2>
       <p class="escola-meta" style="margin-bottom:12px">
-        ${extra
-          ? "Informe quantos extras quer incluir. Extra acompanha aluno especial. No acesso, o CPF mostra separado: turmas em que aplica (baixa) e turmas em que é extra (só ver)."
-          : "Informe quantos quer incluir. Números que faltam (se alguém apagou o 03, por exemplo) voltam primeiro; depois segue o próximo livre."}
+        Informe quantos quer incluir. Números que faltam (se alguém apagou o 03, por exemplo) voltam primeiro; depois segue o próximo livre.
         O número do cronograma permanece. Para trocar a pessoa, use <b>Limpar nome</b> e vincule outra.
       </p>
       <form id="form-lote" class="form-grid">
         <label class="campo">Quantidade
           <input name="quantidade" type="number" min="1" max="200" required placeholder="Ex.: 15" />
         </label>
-        <button class="btn" type="submit">${extra ? "Gerar extras" : "Gerar aplicadores"}</button>
+        <button class="btn" type="submit">Gerar aplicadores</button>
       </form>
     </section>
     <section class="panel" style="margin-bottom:16px">
@@ -1262,7 +1282,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
         <label class="campo">Número no cronograma
           <select name="codigo" ${lista.length ? "required" : "disabled"}>${opts}</select>
         </label>
-        <button class="btn gold" type="submit">${extra ? "Vincular extra" : "Vincular no quadro"}</button>
+        <button class="btn gold" type="submit">Vincular no quadro</button>
       </form>
     </section>
     <div class="toolbar">
@@ -1295,11 +1315,10 @@ async function carregarAplicadores(tipo = "APLICADOR") {
     try {
       const r = await api("/api/aplicadores/lote", {
         method: "POST",
-        body: JSON.stringify({ quantidade: qtd, tipo: extra ? "EXTRA" : "APLICADOR" }),
+        body: JSON.stringify({ quantidade: qtd, tipo: "APLICADOR" }),
       });
-      const prefixo = extra ? "Extra" : "Aplicador";
-      alert(`Criados ${prefixo} ${String(r.inicio).padStart(2, "0")} até ${prefixo} ${String(r.fim).padStart(2, "0")} (${r.quantidade}). Números que faltavam na ordem entram primeiro.`);
-      carregarAplicadores(tipo);
+      alert(`Criados Aplicador ${String(r.inicio).padStart(2, "0")} até Aplicador ${String(r.fim).padStart(2, "0")} (${r.quantidade}). Números que faltavam na ordem entram primeiro.`);
+      carregarAplicadores();
     } catch (err) {
       alert(err.message);
     }
@@ -1327,7 +1346,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
           ? `${r.nome} ficou como ${r.codigo}.\n\nLink de acesso:\n${location.origin}/acesso/${r.acesso_token}`
           : `${r.nome} ficou como ${r.codigo} no quadro.`
       );
-      carregarAplicadores(tipo);
+      carregarAplicadores();
     } catch (err) {
       alert(err.message);
     }
@@ -1393,7 +1412,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
             method: "PATCH",
             body: JSON.stringify({ nome, cpf }),
           });
-          carregarAplicadores(tipo);
+          carregarAplicadores();
         } catch (err) {
           alert(err.message);
         }
@@ -1409,7 +1428,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
             method: "PATCH",
             body: JSON.stringify({ nome: "" }),
           });
-          carregarAplicadores(tipo);
+          carregarAplicadores();
         } catch (err) {
           alert(err.message);
         }
@@ -1426,7 +1445,7 @@ async function carregarAplicadores(tipo = "APLICADOR") {
         if (!confirm(aviso)) return;
         try {
           await api(`/api/aplicadores/${id}`, { method: "DELETE" });
-          carregarAplicadores(tipo);
+          carregarAplicadores();
         } catch (err) {
           alert(err.message);
         }
