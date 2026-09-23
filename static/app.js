@@ -148,7 +148,10 @@ $("#arquivo-planilha").addEventListener("change", async (ev) => {
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = "";
   if (!file) return;
-  if (!confirm(`Importar "${file.name}"? Se for o quadro de turmas, ele é atualizado. Se for o relatório de alunos especiais, os nomes entram nas turmas sem apagar o quadro.`)) return;
+  const btn = $("#btn-enviar-planilha");
+  const texto = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Importando… espera";
   const fd = new FormData();
   fd.append("arquivo", file);
   try {
@@ -157,8 +160,16 @@ $("#arquivo-planilha").addEventListener("change", async (ev) => {
       body: fd,
       credentials: "same-origin",
     });
-    if (res.status === 401) mostrarTelaLoginAdmin();
-    const data = await res.json();
+    if (res.status === 401) {
+      mostrarTelaLoginAdmin();
+      throw new Error("Sessão caiu. Entre de novo e envie a planilha outra vez.");
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error("O Render não terminou a tempo. Envie de novo e não feche a página.");
+    }
     if (!res.ok) throw new Error(data.detail || "Falha ao importar.");
     const avisos = (data.avisos || []).length ? `\nAvisos: ${data.avisos.length}` : "";
     if (data.tipo === "especiais") {
@@ -169,6 +180,9 @@ $("#arquivo-planilha").addEventListener("change", async (ev) => {
     mostrarView(state.view);
   } catch (err) {
     alert(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = texto;
   }
 });
 
