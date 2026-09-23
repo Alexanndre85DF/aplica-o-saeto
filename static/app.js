@@ -196,7 +196,7 @@ async function abrirVaga(vagaId) {
   }
   const v = data.vaga;
   $("#drawer-kicker").textContent = `${tit(v.municipio_nome)} · ${v.turno}`;
-  $("#drawer-titulo").textContent = v.serie;
+  $("#drawer-titulo").textContent = v.turma ? `${v.serie} · ${v.turma}` : v.serie;
   const problemas = (v.problemas || [])
     .map((p) => `<li>${p.mensagem}</li>`)
     .join("");
@@ -275,7 +275,7 @@ async function abrirVaga(vagaId) {
       <h3>2. Extra por estudante</h3>
       ${temAplicador ? `
       ${alunosEsp.length ? `<p class="escola-meta">Marque o aluno e busque quem acompanha. ${extras.length} de ${nEx} com extra.</p>
-      ${listaAlunos}` : `<p class="aviso-diaria">Nenhum aluno especial nesta turma. Extra só entra com nome da lista. Inclua abaixo ou importe o relatório de confirmação da base.</p>`}
+      ${listaAlunos}` : `<p class="aviso-diaria">Nenhum aluno especial em ${escHtml(v.turma || v.serie)}. Extra só com nome da lista.</p>`}
       <form id="form-aluno-esp" class="form-grid" style="margin-top:8px">
         <label class="campo">Nome do estudante
           <input name="nome" required placeholder="Nome completo" />
