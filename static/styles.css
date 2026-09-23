@@ -434,6 +434,7 @@ select, input[type="text"] {
 .chip.vago { background: #ffedd5; color: var(--vago); }
 .chip.choque { background: #ffe4e6; color: var(--choque); }
 .chip.ok { background: #ccfbf1; color: var(--ok); }
+.chip.extra { background: #f3dfb8; color: #7a4b00; margin-left: 4px; }
 
 .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 

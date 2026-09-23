@@ -415,9 +415,7 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             lista.append(extra)
         alunos = alunos_da_vaga(conn, vaga)
         vaga["alunos_especiais"] = alunos
-        n = sum(1 for a in alunos if a.get("precisa_extra"))
-        if _n_extras(vaga) != n:
-            conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, vaga["id"]))
+        n = sum(1 for a in alunos if a.get("precisa_extra")) or _n_extras(vaga)
         vaga["n_extras"] = n
         vaga["extras"] = lista
         nomeados = sum(1 for a in alunos if a.get("extra"))

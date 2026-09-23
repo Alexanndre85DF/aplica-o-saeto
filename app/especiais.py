@@ -69,7 +69,16 @@ def alinhar_n_extras_todas(conn) -> int:
 
 
 def alunos_da_vaga(conn, vaga) -> list[dict]:
-    if not vaga or not vaga.get("escola_id"):
+    if not vaga:
+        return []
+    if not vaga.get("escola_id") and vaga.get("id"):
+        row = conn.execute(
+            "SELECT escola_id, turma, serie FROM vagas WHERE id = ?",
+            (vaga["id"],),
+        ).fetchone()
+        if row:
+            vaga = {**dict(vaga), **dict(row)}
+    if not vaga.get("escola_id"):
         return []
     try:
         rows = conn.execute(

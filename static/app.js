@@ -1220,6 +1220,8 @@ async function pintarQuadro(preloaded = null) {
                 !s.vago && !s.tem_choque && s.status !== "FINALIZADA" ? "ok" : "",
                 s.status === "FINALIZADA" ? "finalizada" : "",
               ].join(" ");
+              const nEx = Number(s.n_extras || 0) || (s.alunos_especiais || []).length;
+              const nomesEx = (s.alunos_especiais || []).map((a) => (a.nome || "").split(" ")[0]).filter(Boolean);
               const chip = s.status === "FINALIZADA"
                 ? '<span class="chip aplicada">aplicada</span>'
                 : s.vago
@@ -1227,17 +1229,18 @@ async function pintarQuadro(preloaded = null) {
                   : s.tem_choque
                     ? '<span class="chip choque">choque</span>'
                     : '<span class="chip ok">alocado</span>';
+              const chipExtra = nEx
+                ? `<span class="chip extra">${s.extras_preenchidos || 0}/${nEx} extra</span>`
+                : "";
               return `<button class="${cls}" data-vaga="${s.id}">
-                  ${chip}
+                  ${chip}${chipExtra}
                   <div class="serie">${s.serie}${s.ordem > 1 ? " · " + s.ordem : ""}</div>
                   ${s.turma ? `<div class="escola-meta">${escHtml(s.turma)}${s.n_alunos ? " · " + s.n_alunos + " alunos" : ""}</div>` : ""}
                   <div class="quem">${s.vago ? "Sem aplicador" : nomeApl(s.aplicador)}</div>
                   ${!s.vago && s.aplicador && s.aplicador.codigo && nomeApl(s.aplicador) !== s.aplicador.codigo
                     ? `<div class="escola-meta">${s.aplicador.codigo}</div>`
                     : ""}
-                  ${(s.n_extras || (s.alunos_especiais || []).length)
-                    ? `<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">Extras ${s.extras_preenchidos || 0}/${s.n_extras || 0}${(s.alunos_especiais || []).length ? " · " + (s.alunos_especiais || []).map((a) => (a.nome || "").split(" ")[0]).filter(Boolean).slice(0, 3).join(", ") : ""}</div>`
-                    : ""}
+                  ${nEx ? `<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">${nomesEx.length ? nomesEx.slice(0, 3).join(", ") : nEx + " aluno(s) especial(is)"}</div>` : ""}
                 </button>`;
             })
             .join("");
