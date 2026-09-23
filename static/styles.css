@@ -805,6 +805,31 @@ table.grade {
   text-align: center;
 }
 
+.tabela input.nome-apl,
+.tabela input.cpf-apl,
+.tabela input.mat-apl,
+.tabela input.os-dia,
+.tabela input.qtd-dia,
+.tabela input.val-mun {
+  min-width: 80px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.tabela input.qtd-dia { max-width: 72px; min-width: 56px; }
+.tabela-diarias td { vertical-align: middle; }
+.tabela tr.total-diaria td {
+  background: var(--face);
+  font-weight: 700;
+}
+.tabela tr.linha-fora td { color: var(--ink-soft); text-decoration: line-through; }
+.aviso-diaria {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: #fff3cd;
+  box-shadow: var(--sunken);
+  font-size: 13px;
+}
+
 ::-webkit-scrollbar { width: 16px; height: 16px; }
 ::-webkit-scrollbar-track { background: #dfdfdf; }
 ::-webkit-scrollbar-thumb {

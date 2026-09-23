@@ -105,6 +105,20 @@ def consolidar_municipios(conn) -> int:
                 "UPDATE escolas SET municipio_id = ? WHERE municipio_id = ?",
                 (vencedor_id, row["id"]),
             )
+            try:
+                conn.execute(
+                    """UPDATE diaria_ajustes SET municipio_id = ?
+                       WHERE municipio_id = ? AND NOT EXISTS (
+                         SELECT 1 FROM diaria_ajustes d
+                         WHERE d.aplicador_id = diaria_ajustes.aplicador_id
+                           AND d.municipio_id = ?
+                       )""",
+                    (vencedor_id, row["id"], vencedor_id),
+                )
+                conn.execute("DELETE FROM diaria_ajustes WHERE municipio_id = ?", (row["id"],))
+                conn.execute("DELETE FROM diaria_valores WHERE municipio_id = ?", (row["id"],))
+            except Exception:
+                pass
             conn.execute("DELETE FROM viagens WHERE municipio_id = ?", (row["id"],))
             conn.execute("DELETE FROM municipios WHERE id = ?", (row["id"],))
             unidos += 1
@@ -231,6 +245,8 @@ def excluir_municipio(conn, municipio_id: int) -> None:
         raise ValueError(
             f"Não dá para excluir: ainda há {n_escolas} escola(s) neste município."
         )
+    conn.execute("DELETE FROM diaria_ajustes WHERE municipio_id = ?", (municipio_id,))
+    conn.execute("DELETE FROM diaria_valores WHERE municipio_id = ?", (municipio_id,))
     conn.execute("DELETE FROM viagens WHERE municipio_id = ?", (municipio_id,))
     conn.execute("DELETE FROM municipios WHERE id = ?", (municipio_id,))
 
@@ -473,7 +489,7 @@ def achar_por_numero(conn, numero: int, tipo: str | None = None):
     return rows[0]
 
 
-def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict:
+def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None, matricula=None) -> dict:
     nome = normalizar_texto(nome)
     if not nome:
         raise ValueError("Informe o nome do aplicador.")
@@ -508,17 +524,22 @@ def vincular_pessoa(conn, nome: str, cpf=None, numero=None, codigo=None) -> dict
                 "informe os alunos especiais e clique nessa pessoa na lista de extra."
             )
 
+    mat = normalizar_texto(matricula) if matricula is not None else None
+    if mat == "":
+        mat = None
     if not alvo:
         cur = conn.execute(
-            """INSERT INTO aplicadores(codigo, nome, cpf, numero, tipo, ativo)
-               VALUES (?, ?, ?, ?, ?, 1)""",
-            (codigo or codigo_do_numero(numero, tipo), nome, cpf_n, numero, tipo),
+            """INSERT INTO aplicadores(codigo, nome, cpf, numero, tipo, matricula, ativo)
+               VALUES (?, ?, ?, ?, ?, ?, 1)""",
+            (codigo or codigo_do_numero(numero, tipo), nome, cpf_n, numero, tipo, mat),
         )
         aplicador_id = cur.lastrowid
     else:
+        if matricula is None:
+            mat = alvo["matricula"] if "matricula" in alvo.keys() else None
         conn.execute(
-            "UPDATE aplicadores SET nome = ?, cpf = ?, numero = ? WHERE id = ?",
-            (nome, cpf_n, numero, alvo["id"]),
+            "UPDATE aplicadores SET nome = ?, cpf = ?, numero = ?, matricula = ? WHERE id = ?",
+            (nome, cpf_n, numero, mat, alvo["id"]),
         )
         aplicador_id = alvo["id"]
 
@@ -544,7 +565,7 @@ def desvincular_pessoa(conn, aplicador_id: int) -> dict:
     conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
     conn.execute(
         """UPDATE aplicadores
-           SET nome = ?, cpf = NULL, acesso_token = NULL
+           SET nome = ?, cpf = NULL, acesso_token = NULL, matricula = NULL
            WHERE id = ?""",
         (codigo, aplicador_id),
     )
@@ -558,6 +579,7 @@ def excluir_aplicador(conn, aplicador_id: int) -> None:
     if not atual:
         raise LookupError("Aplicador não encontrado.")
     conn.execute("DELETE FROM sessoes_acesso WHERE aplicador_id = ?", (aplicador_id,))
+    conn.execute("DELETE FROM diaria_ajustes WHERE aplicador_id = ?", (aplicador_id,))
     conn.execute("DELETE FROM vaga_extras WHERE aplicador_id = ?", (aplicador_id,))
     conn.execute(
         """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
@@ -623,6 +645,8 @@ def origem_manual(conn) -> bool:
 
 def zerar_tudo(conn) -> None:
     conn.execute("DELETE FROM sessoes_acesso")
+    conn.execute("DELETE FROM diaria_ajustes")
+    conn.execute("DELETE FROM diaria_valores")
     conn.execute("DELETE FROM vaga_extras")
     conn.execute("DELETE FROM vagas")
     conn.execute("DELETE FROM viagens")

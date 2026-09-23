@@ -9,7 +9,7 @@ from .config import SUPABASE_KEY, SUPABASE_URL
 TABELAS = [
     ("municipios", ["id", "nome"]),
     ("escolas", ["id", "codigo", "nome", "municipio_id", "rede", "rural"]),
-    ("aplicadores", ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo", "tipo"]),
+    ("aplicadores", ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo", "tipo", "matricula"]),
     ("viagens", ["id", "municipio_id", "data_saida", "data_retorno", "dias_aplicacao"]),
     ("vagas", [
         "id",
@@ -32,6 +32,8 @@ TABELAS = [
     ("vaga_extras", ["id", "vaga_id", "aplicador_id"]),
     ("sessoes_acesso", ["token", "aplicador_id", "criado_em", "expira_em"]),
     ("meta", ["chave", "valor"]),
+    ("diaria_valores", ["municipio_id", "valor"]),
+    ("diaria_ajustes", ["id", "aplicador_id", "municipio_id", "os", "qtd_diarias", "excluido"]),
 ]
 
 _CONFLITO = {
@@ -43,6 +45,8 @@ _CONFLITO = {
     "vaga_extras": "id",
     "sessoes_acesso": "token",
     "meta": "chave",
+    "diaria_valores": "municipio_id",
+    "diaria_ajustes": "id",
 }
 
 

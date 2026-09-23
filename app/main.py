@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import Cookie, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -62,6 +62,7 @@ from .cadastro import (
     criar_lote_aplicadores,
 )
 from .config import DATA_DIR, localizar_planilha, usando_nuvem, usando_postgres, usando_supabase
+from .diarias import exportar_xlsx, gravar_ajuste, gravar_config, montar_folha
 from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
 from .regras import dias_do_municipio, fmt_data
@@ -111,6 +112,7 @@ class AplicadorBody(BaseModel):
     cpf: str | None = None
     numero: int | None = None
     ativo: bool | None = None
+    matricula: str | None = None
 
 
 class LoteAplicadoresBody(BaseModel):
@@ -123,6 +125,20 @@ class VincularBody(BaseModel):
     cpf: str | None = None
     numero: int | None = None
     codigo: str | None = None
+    matricula: str | None = None
+
+
+class DiariaConfigBody(BaseModel):
+    valor_padrao: str | float | None = None
+    valores: list[dict] | None = None
+
+
+class DiariaAjusteBody(BaseModel):
+    aplicador_id: int
+    municipio_id: int
+    os: str | None = None
+    qtd_diarias: str | float | None = None
+    excluido: bool | None = None
 
 
 class MunicipioBody(BaseModel):
@@ -669,13 +685,20 @@ def editar_aplicador(aplicador_id: int, body: AplicadorBody):
                     cpf=cpf_envio if cpf_envio is not None else (atual["cpf"] if "cpf" in atual.keys() else None),
                     numero=body.numero if body.numero is not None else (atual["numero"] if "numero" in atual.keys() else None),
                     codigo=atual["codigo"],
+                    matricula=body.matricula,
                 )
         except Exception as exc:
             _cadastro_erro(exc)
-        conn.execute(
-            "UPDATE aplicadores SET nome = ?, ativo = ? WHERE id = ?",
-            (nome, ativo, aplicador_id),
-        )
+        if body.matricula is not None:
+            conn.execute(
+                "UPDATE aplicadores SET nome = ?, ativo = ?, matricula = ? WHERE id = ?",
+                (nome, ativo, body.matricula.strip() or None, aplicador_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE aplicadores SET nome = ?, ativo = ? WHERE id = ?",
+                (nome, ativo, aplicador_id),
+            )
         return row_to_dict(
             conn.execute(
                 "SELECT * FROM aplicadores WHERE id = ?", (aplicador_id,)
@@ -768,6 +791,7 @@ def api_criar_aplicador(body: AplicadorBody):
                 cpf=body.cpf,
                 numero=body.numero,
                 codigo=body.codigo,
+                matricula=body.matricula,
             )
         except Exception as exc:
             _cadastro_erro(exc)
@@ -783,6 +807,7 @@ def api_vincular_aplicador(body: VincularBody):
                 cpf=body.cpf,
                 numero=body.numero,
                 codigo=body.codigo,
+                matricula=body.matricula,
             )
         except Exception as exc:
             _cadastro_erro(exc)
@@ -1023,6 +1048,48 @@ def api_receber_prova(vaga_id: int, body: ReceberProvaBody):
         if not resultado.get("ok"):
             raise HTTPException(400, resultado.get("erro") or "Não foi possível marcar o recebimento.")
         return resultado
+
+
+@app.get("/api/diarias")
+def api_diarias():
+    with get_db() as conn:
+        return montar_folha(conn)
+
+
+@app.patch("/api/diarias/config")
+def api_diarias_config(body: DiariaConfigBody):
+    with get_db() as conn:
+        try:
+            return gravar_config(conn, body.valor_padrao, body.valores)
+        except Exception as exc:
+            _cadastro_erro(exc)
+
+
+@app.patch("/api/diarias/ajuste")
+def api_diarias_ajuste(body: DiariaAjusteBody):
+    with get_db() as conn:
+        try:
+            return gravar_ajuste(
+                conn,
+                body.aplicador_id,
+                body.municipio_id,
+                body.os,
+                body.qtd_diarias,
+                body.excluido,
+            )
+        except Exception as exc:
+            _cadastro_erro(exc)
+
+
+@app.get("/api/diarias/export")
+def api_diarias_export():
+    with get_db() as conn:
+        bio, nome = exportar_xlsx(conn)
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @app.post("/api/quadro/organizar")

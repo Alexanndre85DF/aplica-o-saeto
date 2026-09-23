@@ -9,6 +9,8 @@ const state = {
   provaMun: "",
   provaData: "",
   buscaAplicador: "",
+  buscaDiaria: "",
+  diariaMun: "",
   cadastroTab: "municipios",
   editMunId: null,
   aplicadoresSel: null,
@@ -126,6 +128,7 @@ function mostrarView(view, extra = {}) {
   if (view === "provas") carregarProvas();
   if (view === "cadastro") carregarCadastro();
   if (view === "aplicadores") carregarAplicadores();
+  if (view === "diarias") carregarDiarias();
   if (view === "escolas") carregarEscolas();
 }
 
@@ -1279,6 +1282,9 @@ async function carregarAplicadores() {
         <label class="campo">CPF
           <input name="cpf" required placeholder="000.000.000-00" maxlength="14" />
         </label>
+        <label class="campo">Matrícula
+          <input name="matricula" placeholder="Ex.: 1116967-1" />
+        </label>
         <label class="campo">Número no cronograma
           <select name="codigo" ${lista.length ? "required" : "disabled"}>${opts}</select>
         </label>
@@ -1296,6 +1302,7 @@ async function carregarAplicadores() {
             <th>No cronograma</th>
             <th>Nome</th>
             <th>CPF</th>
+            <th>Matrícula</th>
             <th>Carga</th>
             <th>Acesso</th>
             <th>Ações</th>
@@ -1337,6 +1344,7 @@ async function carregarAplicadores() {
         body: JSON.stringify({
           nome: f.nome.value,
           cpf: f.cpf.value,
+          matricula: f.matricula.value || null,
           codigo: f.codigo.value,
           numero: sel.dataset.numero ? Number(sel.dataset.numero) : null,
         }),
@@ -1354,7 +1362,7 @@ async function carregarAplicadores() {
   const pintar = () => {
     const q = ($("#busca-apl").value || "").toLowerCase();
     const fil = lista.filter((a) =>
-      `${a.nome || ""} ${a.codigo} ${a.cpf_fmt || ""} ${a.numero || ""}`.toLowerCase().includes(q)
+      `${a.nome || ""} ${a.codigo} ${a.cpf_fmt || ""} ${a.numero || ""} ${a.matricula || ""}`.toLowerCase().includes(q)
     );
     $("#tb-apl").innerHTML = fil
       .map((a) => {
@@ -1364,6 +1372,7 @@ async function carregarAplicadores() {
           <td>${escHtml(a.codigo)}${a.identificado ? "" : ' <span class="chip vago">sem nome</span>'}</td>
           <td><input class="nome-apl" data-id="${a.id}" value="${escHtml(nomeMostrar)}" placeholder="Nome da pessoa" /></td>
           <td><input class="cpf-apl" data-id="${a.id}" value="${escHtml(a.cpf_fmt || "")}" placeholder="000.000.000-00" maxlength="14" /></td>
+          <td><input class="mat-apl" data-id="${a.id}" value="${escHtml(a.matricula || "")}" placeholder="Matrícula" /></td>
           <td>${a.carga || 0} turma(s)${a.carga_extra ? " + " + a.carga_extra + " extra(s)" : ""} · ${(a.municipios || []).map(tit).join(", ") || "sem escala"}</td>
           <td>${
             a.acesso_token
@@ -1404,13 +1413,14 @@ async function carregarAplicadores() {
         const id = btn.dataset.salvar;
         const nome = $(`.nome-apl[data-id="${id}"]`).value;
         const cpf = $(`.cpf-apl[data-id="${id}"]`).value;
+        const matricula = $(`.mat-apl[data-id="${id}"]`).value;
         if (!nome) {
           if (!confirm("Sem nome: este número volta a ficar só como aplicador, para vincular outra pessoa depois. A escala no quadro permanece. Continuar?")) return;
         }
         try {
           await api(`/api/aplicadores/${id}`, {
             method: "PATCH",
-            body: JSON.stringify({ nome, cpf }),
+            body: JSON.stringify({ nome, cpf, matricula }),
           });
           carregarAplicadores();
         } catch (err) {
@@ -1453,6 +1463,191 @@ async function carregarAplicadores() {
     });
   };
   $("#busca-apl").addEventListener("input", pintar);
+  pintar();
+}
+
+async function carregarDiarias() {
+  titulo(
+    "Diárias",
+    "Folha montada com quem foi alocado fora de Gurupi, titular ou extra. Uma linha por pessoa e viagem."
+  );
+  let folha;
+  try {
+    folha = await api("/api/diarias");
+  } catch (err) {
+    $("#view-diarias").innerHTML = `<section class="panel"><p>Não deu para abrir as diárias: ${escHtml(err.message)}</p></section>`;
+    return;
+  }
+  const t = folha.totais || {};
+  const destinos = folha.valores || [];
+  const optsMun = [`<option value="">Todos os destinos</option>`]
+    .concat(destinos.map((d) => `<option value="${d.municipio_id}" ${String(state.diariaMun) === String(d.municipio_id) ? "selected" : ""}>${escHtml(tit(d.municipio))}</option>`))
+    .join("");
+  $("#view-diarias").innerHTML = `
+    <div class="cards">
+      <article class="card"><div class="label">Pessoas</div><div class="value">${t.pessoas || 0}</div></article>
+      <article class="card"><div class="label">Viagens</div><div class="value">${t.viagens || 0}</div></article>
+      <article class="card"><div class="label">Linhas</div><div class="value">${t.linhas || 0}</div></article>
+      <article class="card"><div class="label">Total a pagar</div><div class="value" style="font-size:20px">${escHtml(t.valor_fmt || "R$ 0,00")}</div></article>
+    </div>
+    ${t.sem_matricula ? `<p class="aviso-diaria">Falta matrícula em ${t.sem_matricula} linha(s). Preencha em Aplicadores para a folha oficial fechar.</p>` : ""}
+    <section class="panel" style="margin-bottom:16px">
+      <h2>Valor da diária</h2>
+      <p class="escola-meta" style="margin-bottom:12px">Padrão do modelo: R$ 189 × dias da viagem (saída até retorno). Aplicação em Gurupi não entra. Meia diária vale 0,5.</p>
+      <form id="form-valor-diaria" class="form-grid">
+        <label class="campo">Valor padrão
+          <input name="valor_padrao" type="text" value="${escHtml(String(folha.valor_padrao).replace(".", ","))}" />
+        </label>
+        <button class="btn" type="submit">Salvar valor</button>
+        <button class="btn gold" type="button" id="btn-export-diaria">Exportar Excel</button>
+      </form>
+      ${destinos.length ? `
+      <table class="tabela" style="margin-top:12px">
+        <thead><tr><th>Destino</th><th>Valor desta viagem</th><th></th></tr></thead>
+        <tbody>
+          ${destinos.map((d) => `<tr>
+            <td><b>${escHtml(tit(d.municipio))}</b>${d.customizado ? ' <span class="chip">próprio</span>' : ""}</td>
+            <td><input class="val-mun" data-mid="${d.municipio_id}" value="${escHtml(String(d.valor).replace(".", ","))}" /></td>
+            <td><button class="btn sm" data-salvar-val="${d.municipio_id}">Aplicar</button></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>` : ""}
+    </section>
+    <div class="toolbar">
+      <select id="filtro-diaria-mun">${optsMun}</select>
+      <input type="text" id="busca-diaria" placeholder="Buscar servidor, matrícula ou destino" value="${escHtml(state.buscaDiaria)}" />
+    </div>
+    <section class="panel">
+      <table class="tabela tabela-diarias">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Município</th>
+            <th>Servidor</th>
+            <th>Matrícula</th>
+            <th>OS</th>
+            <th>Diárias</th>
+            <th>Valor</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tb-diarias"></tbody>
+      </table>
+    </section>
+  `;
+  const pintar = () => {
+    const q = (state.buscaDiaria || "").toLowerCase();
+    const mun = String(state.diariaMun || "");
+    const grupos = (folha.grupos || []).filter((g) => !mun || String(g.municipio_id) === mun);
+    const linhasHtml = [];
+    if (!grupos.length) {
+      linhasHtml.push(`<tr><td colspan="8">Ninguém alocado fora de Gurupi ainda. Conforme entrar no quadro, a folha aparece aqui.</td></tr>`);
+    }
+    grupos.forEach((g) => {
+      const visiveis = (g.linhas || []).filter((l) => {
+        const bloco = `${l.nome || ""} ${l.matricula || ""} ${l.rota || ""} ${l.os || ""}`.toLowerCase();
+        return !q || bloco.includes(q);
+      });
+      if (!visiveis.length) return;
+      const ativas = visiveis.filter((l) => !l.excluido);
+      const soma = ativas.reduce((acc, l) => acc + Number(l.valor || 0), 0);
+      visiveis.forEach((l) => {
+        const papel = l.papel === "extra" ? ' <span class="chip">extra</span>' : (l.papel === "ambos" ? ' <span class="chip">titular + extra</span>' : "");
+        linhasHtml.push(`<tr class="${l.excluido ? "linha-fora" : ""}">
+          <td>${escHtml(l.data_fmt)}</td>
+          <td>${escHtml(l.rota)}</td>
+          <td><b>${escHtml(tit(l.nome))}</b>${papel}${l.sem_matricula ? ' <span class="chip vago">sem matrícula</span>' : ""}</td>
+          <td>${escHtml(l.matricula) || "—"}</td>
+          <td><input class="os-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${escHtml(l.os)}" placeholder="OS" /></td>
+          <td><input class="qtd-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${String(l.qtd_diarias).replace(".", ",")}" title="Sugerido: ${l.qtd_sugerida}" /></td>
+          <td>${escHtml(l.valor_fmt)}</td>
+          <td style="white-space:nowrap">
+            <button class="btn sm" data-salvar-dia="${l.aplicador_id}" data-mid="${l.municipio_id}">Salvar</button>
+            <button class="btn sm ${l.excluido ? "" : "ghost"}" data-excluir-dia="${l.aplicador_id}" data-mid="${l.municipio_id}" data-off="${l.excluido ? "0" : "1"}">${l.excluido ? "Incluir" : "Tirar"}</button>
+          </td>
+        </tr>`);
+      });
+      linhasHtml.push(`<tr class="total-diaria"><td colspan="6">Total ${escHtml(g.data_fmt)} · ${escHtml(g.rota)}</td><td colspan="2"><b>${escHtml(soma.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }))}</b></td></tr>`);
+    });
+    $("#tb-diarias").innerHTML = linhasHtml.join("") || `<tr><td colspan="8">Nenhum resultado neste filtro.</td></tr>`;
+    $$("[data-salvar-dia]").forEach((btn) => {
+      btn.onclick = async () => {
+        const apl = btn.dataset.salvarDia;
+        const mid = btn.dataset.mid;
+        const os = $(`.os-dia[data-apl="${apl}"][data-mid="${mid}"]`).value;
+        const qtd = $(`.qtd-dia[data-apl="${apl}"][data-mid="${mid}"]`).value;
+        try {
+          await api("/api/diarias/ajuste", {
+            method: "PATCH",
+            body: JSON.stringify({
+              aplicador_id: Number(apl),
+              municipio_id: Number(mid),
+              os,
+              qtd_diarias: qtd,
+            }),
+          });
+          carregarDiarias();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+    $$("[data-excluir-dia]").forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          await api("/api/diarias/ajuste", {
+            method: "PATCH",
+            body: JSON.stringify({
+              aplicador_id: Number(btn.dataset.excluirDia),
+              municipio_id: Number(btn.dataset.mid),
+              excluido: btn.dataset.off === "1",
+            }),
+          });
+          carregarDiarias();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
+  };
+  $("#btn-export-diaria").onclick = () => {
+    window.location.href = "/api/diarias/export";
+  };
+  $("#form-valor-diaria").onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/diarias/config", {
+        method: "PATCH",
+        body: JSON.stringify({ valor_padrao: ev.target.valor_padrao.value }),
+      });
+      carregarDiarias();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  $$("[data-salvar-val]").forEach((btn) => {
+    btn.onclick = async () => {
+      const mid = btn.dataset.salvarVal;
+      const valor = $(`.val-mun[data-mid="${mid}"]`).value;
+      try {
+        await api("/api/diarias/config", {
+          method: "PATCH",
+          body: JSON.stringify({ valores: [{ municipio_id: Number(mid), valor }] }),
+        });
+        carregarDiarias();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  });
+  $("#filtro-diaria-mun").onchange = (ev) => {
+    state.diariaMun = ev.target.value;
+    pintar();
+  };
+  $("#busca-diaria").addEventListener("input", (ev) => {
+    state.buscaDiaria = ev.target.value;
+    pintar();
+  });
   pintar();
 }
 
