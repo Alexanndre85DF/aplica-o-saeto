@@ -265,7 +265,9 @@ async def proteger_admin(request: Request, call_next):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    resp = FileResponse(STATIC / "index.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/acesso")

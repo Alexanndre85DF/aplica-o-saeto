@@ -1234,7 +1234,7 @@ async function pintarQuadro(preloaded = null) {
                 : "";
               return `<button class="${cls}" data-vaga="${s.id}">
                   ${chip}${chipExtra}
-                  <div class="serie">${s.serie}${s.ordem > 1 ? " · " + s.ordem : ""}</div>
+                  <div class="serie">${s.serie}${s.ordem > 1 ? " · " + s.ordem : ""}${nEx ? ` · ${nEx} extra` : ""}</div>
                   ${s.turma ? `<div class="escola-meta">${escHtml(s.turma)}${s.n_alunos ? " · " + s.n_alunos + " alunos" : ""}</div>` : ""}
                   <div class="quem">${s.vago ? "Sem aplicador" : nomeApl(s.aplicador)}</div>
                   ${!s.vago && s.aplicador && s.aplicador.codigo && nomeApl(s.aplicador) !== s.aplicador.codigo
