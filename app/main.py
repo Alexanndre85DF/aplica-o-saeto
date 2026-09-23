@@ -89,6 +89,7 @@ class SubstituirBody(BaseModel):
 class ExtraBody(BaseModel):
     aplicador_id: int
     forcar: bool = False
+    aluno_id: int | None = None
 
 
 class NExtrasBody(BaseModel):
@@ -937,6 +938,15 @@ def quadro(municipio_id: int):
                     "extras_preenchidos": d.get("extras_preenchidos") or 0,
                     "extras_faltam": d.get("extras_faltam") or 0,
                     "extras_tem_choque": bool(d.get("extras_tem_choque")),
+                    "alunos_especiais": [
+                        {
+                            "id": a["id"],
+                            "nome": a["nome"],
+                            "necessidade": a.get("necessidade"),
+                            "tem_extra": bool(a.get("extra")),
+                        }
+                        for a in (d.get("alunos_especiais") or [])
+                    ],
                 }
             )
 
@@ -1017,16 +1027,16 @@ def api_n_extras(vaga_id: int, body: NExtrasBody):
 @app.post("/api/vagas/{vaga_id}/extras")
 def api_alocar_extra(vaga_id: int, body: ExtraBody):
     with get_db() as conn:
-        resultado = alocar_extra(conn, vaga_id, body.aplicador_id, body.forcar)
+        resultado = alocar_extra(conn, vaga_id, body.aplicador_id, body.forcar, body.aluno_id)
         if not resultado.get("ok"):
             raise HTTPException(409, resultado.get("erro") or "Não foi possível encaixar o extra.")
         return resultado
 
 
 @app.delete("/api/vagas/{vaga_id}/extras/{aplicador_id}")
-def api_remover_extra(vaga_id: int, aplicador_id: int):
+def api_remover_extra(vaga_id: int, aplicador_id: int, aluno_id: int | None = None):
     with get_db() as conn:
-        resultado = remover_extra(conn, vaga_id, aplicador_id)
+        resultado = remover_extra(conn, vaga_id, aplicador_id, aluno_id)
         if not resultado.get("ok"):
             raise HTTPException(404, resultado.get("erro") or "Extra não encontrado.")
         return resultado
@@ -1158,7 +1168,13 @@ async def api_importar_arquivo(arquivo: UploadFile = File(...)):
         raise HTTPException(400, "Envie um arquivo Excel (.xlsx).")
     bruto = DATA_DIR / "envio.xlsx"
     bruto.write_bytes(await arquivo.read())
-    destino = salvar_planilha_atual(bruto)
+    from openpyxl import load_workbook
+    from .especiais import eh_planilha_confirmacao
+
+    wb = load_workbook(bruto, read_only=True, data_only=True)
+    confirmacao = eh_planilha_confirmacao(wb)
+    wb.close()
+    destino = bruto if confirmacao else salvar_planilha_atual(bruto)
     return importar_planilha(destino)
 
 

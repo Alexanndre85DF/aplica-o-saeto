@@ -327,6 +327,7 @@ def excluir_escola(conn, escola_id: int) -> None:
     n = conn.execute("SELECT COUNT(*) n FROM vagas WHERE escola_id = ?", (escola_id,)).fetchone()["n"]
     if n:
         raise ValueError(f"Não dá para excluir: ainda há {n} aplicação(ões) nesta escola.")
+    conn.execute("DELETE FROM alunos_especiais WHERE escola_id = ?", (escola_id,))
     conn.execute("DELETE FROM escolas WHERE id = ?", (escola_id,))
 
 
@@ -648,6 +649,7 @@ def zerar_tudo(conn) -> None:
     conn.execute("DELETE FROM diaria_ajustes")
     conn.execute("DELETE FROM diaria_valores")
     conn.execute("DELETE FROM vaga_extras")
+    conn.execute("DELETE FROM alunos_especiais")
     conn.execute("DELETE FROM vagas")
     conn.execute("DELETE FROM viagens")
     conn.execute("DELETE FROM escolas")

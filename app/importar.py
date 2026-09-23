@@ -119,7 +119,12 @@ def completar_planilha(caminho: Path) -> dict:
 
 def importar_planilha(caminho: Path) -> dict:
     wb = load_workbook(caminho, data_only=True)
+    from .especiais import eh_planilha_confirmacao, importar_confirmacao
     from .homologacao import eh_planilha_caed, eh_planilha_homologacao, importar_caed, importar_homologacao
+
+    if eh_planilha_confirmacao(wb):
+        with get_db() as conn:
+            return importar_confirmacao(caminho, conn)
 
     if eh_planilha_caed(wb):
         with get_db() as conn:

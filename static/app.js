@@ -148,7 +148,7 @@ $("#arquivo-planilha").addEventListener("change", async (ev) => {
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = "";
   if (!file) return;
-  if (!confirm(`Importar "${file.name}" e deixar o quadro igual a essa planilha? O que veio de planilha anterior é substituído. Cadastros manuais permanecem.`)) return;
+  if (!confirm(`Importar "${file.name}"? Se for o quadro de turmas, ele é atualizado. Se for o relatório de alunos especiais, os nomes entram nas turmas sem apagar o quadro.`)) return;
   const fd = new FormData();
   fd.append("arquivo", file);
   try {
@@ -161,7 +161,11 @@ $("#arquivo-planilha").addEventListener("change", async (ev) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Falha ao importar.");
     const avisos = (data.avisos || []).length ? `\nAvisos: ${data.avisos.length}` : "";
-    alert(`Quadro atualizado: ${data.vagas_gravadas} aplicações de ${file.name}.${avisos}`);
+    if (data.tipo === "especiais") {
+      alert(`Alunos especiais nas turmas: ${data.alunos} de ${file.name} (${data.novos} novos, ${data.atualizados} já estavam).${data.sem_escola ? `\nSem escola no quadro: ${data.sem_escola}` : ""}${avisos}`);
+    } else {
+      alert(`Quadro atualizado: ${data.vagas_gravadas} aplicações de ${file.name}.${avisos}`);
+    }
     mostrarView(state.view);
   } catch (err) {
     alert(err.message);
@@ -213,13 +217,32 @@ async function abrirVaga(vagaId) {
             </button>`;
   };
   const cands = data.candidatos.map(htmlCand).join("");
-  const nEx = Number(v.n_extras || 0);
+  const alunosEsp = v.alunos_especiais || [];
+  const nEx = Math.max(Number(v.n_extras || 0), alunosEsp.length);
   const extras = v.extras || [];
   const extraCands = (data.candidatos_extra || []).map(htmlCand).join("");
-  const listaExtras = extras
+  const listaAlunos = alunosEsp
+    .map((al) => {
+      const extra = al.extra;
+      const faz = al.faz_com_turma === "SIM" ? ' <span class="chip ok">faz com a turma</span>' : "";
+      return `<div class="aluno-esp ${extra ? "tem-extra" : ""}" data-aluno="${al.id}">
+        <label class="aluno-esp-sel">
+          <input type="radio" name="aluno-extra" value="${al.id}" ${extra ? "disabled" : ""} />
+          <span>
+            <b>${escHtml(tit(al.nome))}</b>${faz}
+            <div class="escola-meta">${escHtml(al.necessidade || "Necessidade especial")}</div>
+            ${extra ? `<div class="escola-meta">Extra: <b>${escHtml(extra.nome)}</b></div>` : '<div class="escola-meta">Sem extra</div>'}
+          </span>
+        </label>
+        ${extra ? `<button type="button" class="btn sm ghost" data-tirar-extra="${extra.id}" data-aluno="${al.id}">Tirar</button>` : ""}
+      </div>`;
+    })
+    .join("");
+  const extrasSemAluno = extras.filter((e) => !e.aluno_id);
+  const listaExtras = extrasSemAluno
     .map(
       (e) => `<div class="extra-item">
-        <span><b>${escHtml(e.nome)}</b> · ${escHtml(e.codigo || "")}${e.tem_choque ? ' <span class="chip choque">choque</span>' : ""}</span>
+        <span><b>${escHtml(e.nome)}</b> · ${escHtml(e.codigo || "")}${e.tem_choque ? ' <span class="chip choque">choque</span>' : ""}${e.aluno_nome ? " · " + escHtml(tit(e.aluno_nome)) : ""}</span>
         <button type="button" class="btn sm ghost" data-tirar-extra="${e.id}">Tirar</button>
       </div>`
     )
@@ -251,17 +274,18 @@ async function abrirVaga(vagaId) {
     <section class="bloco-extras">
       <h3>2. Depois, o extra</h3>
       ${temAplicador ? `
-      <p class="escola-meta">Quantos alunos especiais? Salve. Depois busque pelo nome quem acompanha — a mesma lista de aplicadores.</p>
+      ${alunosEsp.length ? `<p class="escola-meta">${alunosEsp.length} estudante(s) especial(is) nesta turma. Marque o aluno e busque quem acompanha.</p>
+      ${listaAlunos}` : `<p class="escola-meta">Quantos alunos especiais? Salve. Depois busque pelo nome quem acompanha.</p>
       <label class="campo">Alunos especiais
         <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
       </label>
-      <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>
+      <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>`}
       <p class="escola-meta">${extras.length} de ${nEx} extra(s) nesta turma.</p>
-      ${listaExtras || (nEx ? "<p class='escola-meta'>Nenhum extra ainda.</p>" : "<p class='escola-meta'>Se não tiver aluno especial, deixe 0.</p>")}
+      ${listaExtras}
       ${nEx > 0 ? `<input type="text" id="busca-extra" placeholder="Digite o nome de quem vai ser extra" autocomplete="off" />
-      <p id="dica-extra" class="escola-meta">Digite pelo menos 2 letras do nome.</p>
+      <p id="dica-extra" class="escola-meta">${alunosEsp.length ? "Marque o estudante acima e digite pelo menos 2 letras do extra." : "Digite pelo menos 2 letras do nome."}</p>
       <div id="lista-extras">${extraCands}</div>` : ""}
-      ` : `<p class="escola-meta">Escolha o aplicador em cima. Aí você encaixa o extra aqui, se a turma tiver aluno especial.</p>`}
+      ` : `<p class="escola-meta">Escolha o aplicador em cima. Aí você encaixa o extra no estudante da turma.</p>`}
     </section>
     ${problemas ? `<ul>${problemas}</ul>` : ""}
     <p>${
@@ -373,16 +397,28 @@ async function abrirVaga(vagaId) {
   $$("[data-tirar-extra]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       try {
-        await api(`/api/vagas/${vagaId}/extras/${btn.dataset.tirarExtra}`, { method: "DELETE" });
+        const q = btn.dataset.aluno ? `?aluno_id=${btn.dataset.aluno}` : "";
+        await api(`/api/vagas/${vagaId}/extras/${btn.dataset.tirarExtra}${q}`, { method: "DELETE" });
         await recarregarTurma();
       } catch (err) {
         alert(err.message);
       }
     });
   });
+  const alunoEspSelecionado = () => {
+    const sel = document.querySelector('input[name="aluno-extra"]:checked');
+    return sel ? Number(sel.value) : null;
+  };
+  const livres = $$('input[name="aluno-extra"]:not(:disabled)');
+  if (livres.length === 1) livres[0].checked = true;
   $$("#lista-extras .cand").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (btn.dataset.ok === "1" && (v.extras || []).some((e) => String(e.id) === String(btn.dataset.id))) {
+        return;
+      }
+      const alunoId = alunoEspSelecionado();
+      if (alunosEsp.length && !alunoId) {
+        alert("Marque o estudante que este extra vai acompanhar.");
         return;
       }
       const forcar = btn.dataset.ok !== "1";
@@ -390,7 +426,11 @@ async function abrirVaga(vagaId) {
       try {
         await api(`/api/vagas/${vagaId}/extras`, {
           method: "POST",
-          body: JSON.stringify({ aplicador_id: Number(btn.dataset.id), forcar }),
+          body: JSON.stringify({
+            aplicador_id: Number(btn.dataset.id),
+            forcar,
+            aluno_id: alunoId,
+          }),
         });
         await recarregarTurma();
       } catch (err) {
@@ -1187,7 +1227,7 @@ async function pintarQuadro(preloaded = null) {
                   ${!s.vago && s.aplicador && s.aplicador.codigo && nomeApl(s.aplicador) !== s.aplicador.codigo
                     ? `<div class="escola-meta">${s.aplicador.codigo}</div>`
                     : ""}
-                  ${`<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">Extras ${s.extras_preenchidos || 0}/${s.n_extras || 0}</div>`}
+                  ${`<div class="escola-meta extras-linha${s.extras_tem_choque ? " extras-choque" : ""}">Extras ${s.extras_preenchidos || 0}/${s.n_extras || 0}${(s.alunos_especiais || []).length ? " · " + (s.alunos_especiais || []).map((a) => (a.nome || "").split(" ")[0]).filter(Boolean).slice(0, 3).join(", ") : ""}</div>`}
                 </button>`;
             })
             .join("");

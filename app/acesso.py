@@ -119,13 +119,15 @@ def minhas_extras(conn, aplicador_id: int) -> list[dict]:
             """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
                       e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                       m.nome AS municipio, vi.data_saida, vi.data_retorno,
-                      t.id AS titular_id, t.codigo AS titular_codigo, t.nome AS titular_nome
+                      t.id AS titular_id, t.codigo AS titular_codigo, t.nome AS titular_nome,
+                      al.nome AS aluno_nome, al.necessidade AS aluno_necessidade
                FROM vaga_extras x
                JOIN vagas v ON v.id = x.vaga_id
                JOIN escolas e ON e.id = v.escola_id
                JOIN municipios m ON m.id = e.municipio_id
                LEFT JOIN viagens vi ON vi.municipio_id = m.id
                LEFT JOIN aplicadores t ON t.id = v.aplicador_id
+               LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
                WHERE x.aplicador_id = ?
                ORDER BY v.data, v.turno, e.nome, v.serie""",
             (aplicador_id,),

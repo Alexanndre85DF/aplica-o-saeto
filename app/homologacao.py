@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -57,14 +58,26 @@ def serie_da_etapa(texto: str) -> str | None:
     t = _cab(texto)
     t = t.replace("SERIE", "SÉRIE").replace("SERÍE", "SÉRIE")
     partes = [t]
-    if "-" in t:
-        partes.append(t.split("-")[0].strip())
+    if " - " in t:
+        partes.insert(0, t.rsplit(" - ", 1)[-1].strip())
+    elif "-" in t:
+        partes.insert(0, t.split("-")[-1].strip())
     for parte in partes:
+        if re.search(r"\b3\s*ª\s*SÉRIE\b", parte):
+            return normalizar_serie("3ª SÉRIE")
+        if re.search(r"\b2\s*ª\s*SÉRIE\b", parte):
+            return normalizar_serie("2ª SÉRIE")
+        m = re.search(r"\b(\d+)\s*º\s*ANO\b", parte)
+        if m:
+            n = m.group(1)
+            if n == "2":
+                return normalizar_serie("2º ANO - DIA 1")
+            return normalizar_serie(f"{n}º ANO")
         if "SÉRIE" in parte and "3" in parte:
             return normalizar_serie("3ª SÉRIE")
         if "SÉRIE" in parte and "2" in parte:
             return normalizar_serie("2ª SÉRIE")
-        if "ANO" in parte and "9" in parte:
+        if "ANO" in parte and "9" in parte and "9 ANOS" not in parte:
             return normalizar_serie("9º ANO")
         if "ANO" in parte and "8" in parte:
             return normalizar_serie("8º ANO")

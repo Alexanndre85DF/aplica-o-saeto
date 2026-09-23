@@ -319,20 +319,39 @@ def _agenda_ocupadas(conn) -> dict[int, list[dict]]:
 def extras_da_vaga(conn, vaga_id: int) -> list[dict]:
     try:
         rows = conn.execute(
-            """SELECT a.id, a.codigo, a.nome, a.numero
+            """SELECT a.id, a.codigo, a.nome, a.numero,
+                      x.aluno_id, al.nome AS aluno_nome, al.necessidade AS aluno_necessidade
                FROM vaga_extras x
                JOIN aplicadores a ON a.id = x.aplicador_id
+               LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
                WHERE x.vaga_id = ?
                ORDER BY COALESCE(a.numero, 9999), a.codigo""",
             (vaga_id,),
         ).fetchall()
     except Exception:
-        return []
+        try:
+            rows = conn.execute(
+                """SELECT a.id, a.codigo, a.nome, a.numero
+                   FROM vaga_extras x
+                   JOIN aplicadores a ON a.id = x.aplicador_id
+                   WHERE x.vaga_id = ?
+                   ORDER BY COALESCE(a.numero, 9999), a.codigo""",
+                (vaga_id,),
+            ).fetchall()
+        except Exception:
+            return []
+        return [
+            {"id": r["id"], "codigo": r["codigo"], "nome": r["nome"] or r["codigo"]}
+            for r in rows
+        ]
     return [
         {
             "id": r["id"],
             "codigo": r["codigo"],
             "nome": r["nome"] or r["codigo"],
+            "aluno_id": r["aluno_id"],
+            "aluno_nome": r["aluno_nome"],
+            "aluno_necessidade": r["aluno_necessidade"],
         }
         for r in rows
     ]
@@ -347,19 +366,38 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
         ph = ",".join("?" * len(ids))
         try:
             rows = conn.execute(
-                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome
+                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, x.aluno_id,
+                           al.nome AS aluno_nome
                     FROM vaga_extras x
                     JOIN aplicadores a ON a.id = x.aplicador_id
+                    LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
                     WHERE x.vaga_id IN ({ph})
                     ORDER BY COALESCE(a.numero, 9999), a.codigo""",
                 tuple(ids),
             ).fetchall()
         except Exception:
             rows = []
+            try:
+                rows = conn.execute(
+                    f"""SELECT x.vaga_id, a.id, a.codigo, a.nome
+                        FROM vaga_extras x
+                        JOIN aplicadores a ON a.id = x.aplicador_id
+                        WHERE x.vaga_id IN ({ph})
+                        ORDER BY COALESCE(a.numero, 9999), a.codigo""",
+                    tuple(ids),
+                ).fetchall()
+            except Exception:
+                rows = []
         for r in rows:
-            por[r["vaga_id"]].append(
-                {"id": r["id"], "codigo": r["codigo"], "nome": r["nome"] or r["codigo"]}
-            )
+            item = {"id": r["id"], "codigo": r["codigo"], "nome": r["nome"] or r["codigo"]}
+            try:
+                item["aluno_id"] = r["aluno_id"]
+                item["aluno_nome"] = r["aluno_nome"]
+            except (KeyError, IndexError):
+                pass
+            por[r["vaga_id"]].append(item)
+    from .especiais import alunos_da_vaga
+
     for vaga in vagas:
         lista = []
         extras_choque = False
@@ -375,7 +413,10 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             if tem_choque:
                 extras_choque = True
             lista.append(extra)
-        n = _n_extras(vaga)
+        alunos = alunos_da_vaga(conn, vaga)
+        vaga["alunos_especiais"] = alunos
+        n_alunos = len(alunos)
+        n = max(_n_extras(vaga), n_alunos)
         vaga["n_extras"] = n
         vaga["extras"] = lista
         vaga["extras_preenchidos"] = len(lista)
@@ -431,7 +472,43 @@ def definir_n_extras(conn, vaga_id: int, n_extras: int) -> dict:
     return {"ok": True, "n_extras": n, "extras": extras_da_vaga(conn, vaga_id)}
 
 
-def alocar_extra(conn, vaga_id: int, aplicador_id: int, forcar: bool = False) -> dict:
+def _cupos_extra(conn, vaga: dict) -> int:
+    from .especiais import alunos_da_vaga
+
+    n_alunos = len(alunos_da_vaga(conn, vaga))
+    return max(_n_extras(vaga), n_alunos)
+
+
+def _gravar_extra(conn, vaga_id: int, aplicador_id: int, aluno_id: int | None) -> None:
+    atual = conn.execute(
+        "SELECT id, aluno_id FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+        (vaga_id, aplicador_id),
+    ).fetchone()
+    if atual:
+        if aluno_id and not atual["aluno_id"]:
+            try:
+                conn.execute(
+                    "UPDATE vaga_extras SET aluno_id = ? WHERE id = ?",
+                    (aluno_id, atual["id"]),
+                )
+            except Exception:
+                pass
+        return
+    try:
+        conn.execute(
+            "INSERT INTO vaga_extras(vaga_id, aplicador_id, aluno_id) VALUES (?, ?, ?)",
+            (vaga_id, aplicador_id, aluno_id),
+        )
+    except Exception:
+        conn.execute(
+            "INSERT INTO vaga_extras(vaga_id, aplicador_id) VALUES (?, ?)",
+            (vaga_id, aplicador_id),
+        )
+
+
+def alocar_extra(
+    conn, vaga_id: int, aplicador_id: int, forcar: bool = False, aluno_id: int | None = None
+) -> dict:
     vaga = conn.execute(
         """SELECT v.*, e.municipio_id, e.nome AS escola_nome, m.nome AS municipio_nome
            FROM vagas v
@@ -448,13 +525,22 @@ def alocar_extra(conn, vaga_id: int, aplicador_id: int, forcar: bool = False) ->
     ).fetchone()
     if not pessoa or not pessoa["ativo"]:
         return {"ok": False, "erro": "Aplicador não encontrado ou inativo."}
-    n = _n_extras(vaga)
+    aluno = None
+    if aluno_id:
+        aluno = conn.execute(
+            "SELECT * FROM alunos_especiais WHERE id = ?", (aluno_id,)
+        ).fetchone()
+        if not aluno:
+            return {"ok": False, "erro": "Estudante especial não encontrado."}
+        aluno = dict(aluno)
+    n = _cupos_extra(conn, vaga)
     if n <= 0:
         return {"ok": False, "erro": "Informe quantos alunos especiais esta turma tem."}
     atuais = extras_da_vaga(conn, vaga_id)
-    if any(x["id"] == aplicador_id for x in atuais):
+    ja = next((x for x in atuais if x["id"] == aplicador_id), None)
+    if ja and (not aluno_id or ja.get("aluno_id") == aluno_id):
         return {"ok": True, "extras": atuais, "n_extras": n}
-    if len(atuais) >= n:
+    if not ja and len(atuais) >= n:
         return {"ok": False, "erro": f"Esta turma já tem os {n} extra(s)."}
     agenda = _agenda_ocupadas(conn)
     checagem = _checar_extra(vaga, aplicador_id, agenda)
@@ -464,10 +550,18 @@ def alocar_extra(conn, vaga_id: int, aplicador_id: int, forcar: bool = False) ->
             "erro": checagem["choques"][0]["mensagem"] if checagem["choques"] else "Este aplicador não pode ser extra nesta turma.",
             "choques": checagem["choques"],
         }
-    conn.execute(
-        "INSERT INTO vaga_extras(vaga_id, aplicador_id) VALUES (?, ?)",
-        (vaga_id, aplicador_id),
-    )
+    alvos = [vaga_id]
+    if aluno:
+        from .especiais import _vagas_do_aluno
+
+        alvos = [v["id"] for v in _vagas_do_aluno(conn, aluno)] or [vaga_id]
+        for vid in alvos:
+            conn.execute(
+                "DELETE FROM vaga_extras WHERE vaga_id = ? AND aluno_id = ?",
+                (vid, aluno_id),
+            )
+    for vid in alvos:
+        _gravar_extra(conn, vid, aplicador_id, aluno_id)
     return {
         "ok": True,
         "extras": extras_da_vaga(conn, vaga_id),
@@ -476,22 +570,42 @@ def alocar_extra(conn, vaga_id: int, aplicador_id: int, forcar: bool = False) ->
     }
 
 
-def remover_extra(conn, vaga_id: int, aplicador_id: int) -> dict:
+def remover_extra(conn, vaga_id: int, aplicador_id: int, aluno_id: int | None = None) -> dict:
     atual = conn.execute(
-        "SELECT 1 FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+        "SELECT * FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
         (vaga_id, aplicador_id),
     ).fetchone()
     if not atual:
         return {"ok": False, "erro": "Este extra não está nesta turma."}
-    conn.execute(
-        "DELETE FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
-        (vaga_id, aplicador_id),
-    )
-    vaga = conn.execute("SELECT n_extras FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
+    alvo_aluno = aluno_id or (atual["aluno_id"] if "aluno_id" in atual.keys() else None)
+    if alvo_aluno:
+        aluno = conn.execute(
+            "SELECT * FROM alunos_especiais WHERE id = ?", (alvo_aluno,)
+        ).fetchone()
+        if aluno:
+            from .especiais import _vagas_do_aluno
+
+            ids = [v["id"] for v in _vagas_do_aluno(conn, dict(aluno))] or [vaga_id]
+            ph = ",".join("?" * len(ids))
+            conn.execute(
+                f"DELETE FROM vaga_extras WHERE aluno_id = ? AND vaga_id IN ({ph})",
+                (alvo_aluno, *ids),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+                (vaga_id, aplicador_id),
+            )
+    else:
+        conn.execute(
+            "DELETE FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+            (vaga_id, aplicador_id),
+        )
+    vaga = conn.execute("SELECT * FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
     return {
         "ok": True,
         "extras": extras_da_vaga(conn, vaga_id),
-        "n_extras": _n_extras(dict(vaga) if vaga else {}),
+        "n_extras": _cupos_extra(conn, dict(vaga) if vaga else {}),
     }
 
 
@@ -509,7 +623,7 @@ def candidatos_para_extra(conn, vaga_id: int, data: str | None = None) -> list[d
     vaga = dict(vaga)
     if data:
         vaga["data"] = data[:10]
-    n = _n_extras(vaga)
+    n = _cupos_extra(conn, vaga)
     agenda = _agenda_ocupadas(conn)
     atuais = extras_da_vaga(conn, vaga_id)
     cheio = len(atuais) >= n > 0

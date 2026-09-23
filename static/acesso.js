@@ -189,6 +189,7 @@ async function carregarPainel() {
         <div class="meta">
           ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
           <b>${a.serie}${a.turma ? " — " + a.turma : ""}</b>
+          ${a.aluno_nome ? `<br />Acompanhar: <b>${tit(a.aluno_nome)}</b>${a.aluno_necessidade ? " · " + a.aluno_necessidade : ""}` : ""}
           ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
           <br />${titular}
           <br />Aqui você só vê a agenda. Quem aplica e dá baixa é o titular da turma.

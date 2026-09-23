@@ -164,6 +164,11 @@ def fmt_data(iso_str: str | None) -> str:
     return f"{dia}/{mes}/{ano}"
 
 
+def serie_base(serie: str | None) -> str:
+    texto = normalizar_serie(serie)
+    return re.sub(r"\s*-\s*DIA\s*[12]\s*$", "", texto, flags=re.I).strip()
+
+
 def serie_par_segundo_ano(serie: str) -> str | None:
     if "DIA 1" in serie:
         return serie.replace("DIA 1", "DIA 2")
