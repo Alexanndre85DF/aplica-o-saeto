@@ -62,10 +62,87 @@ def _sincronizar_n_extras(conn, aluno=None, vaga=None) -> int:
 
 
 def alinhar_n_extras_todas(conn) -> int:
-    rows = conn.execute("SELECT id, escola_id, turma, serie FROM vagas").fetchall()
-    for row in rows:
-        _sincronizar_n_extras(conn, vaga=dict(row))
-    return len(rows)
+    vagas = [dict(r) for r in conn.execute("SELECT id, escola_id, turma, serie FROM vagas")]
+    if not vagas:
+        return 0
+    try:
+        alunos = conn.execute(
+            "SELECT escola_id, turma, serie, precisa_extra FROM alunos_especiais"
+        ).fetchall()
+    except Exception:
+        return 0
+    por = {}
+    for a in alunos:
+        if not a["precisa_extra"]:
+            continue
+        chave = (a["escola_id"], normalizar_texto(a["turma"]), serie_base(a["serie"]))
+        por[chave] = por.get(chave, 0) + 1
+    for vaga in vagas:
+        n = por.get(
+            (vaga["escola_id"], normalizar_texto(vaga.get("turma")), serie_base(vaga.get("serie"))),
+            0,
+        )
+        conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, vaga["id"]))
+    return len(vagas)
+
+
+def alunos_das_vagas(conn, vagas: list[dict]) -> dict[int, list[dict]]:
+    saida: dict[int, list[dict]] = {v["id"]: [] for v in vagas if v.get("id")}
+    if not saida:
+        return saida
+    escola_ids = {v["escola_id"] for v in vagas if v.get("escola_id")}
+    if not escola_ids:
+        return saida
+    try:
+        ph = ",".join("?" * len(escola_ids))
+        rows = conn.execute(
+            f"""SELECT * FROM alunos_especiais
+                WHERE escola_id IN ({ph})
+                ORDER BY nome""",
+            tuple(escola_ids),
+        ).fetchall()
+    except Exception:
+        return saida
+    por_escola: dict[int, list[dict]] = {}
+    for r in rows:
+        por_escola.setdefault(int(r["escola_id"]), []).append(dict(r))
+    extras_por_vaga: dict[int, dict] = {}
+    ids = list(saida)
+    try:
+        ph = ",".join("?" * len(ids))
+        for r in conn.execute(
+            f"""SELECT x.vaga_id, x.aluno_id, a.id, a.codigo, a.nome
+                FROM vaga_extras x
+                JOIN aplicadores a ON a.id = x.aplicador_id
+                WHERE x.vaga_id IN ({ph}) AND x.aluno_id IS NOT NULL""",
+            tuple(ids),
+        ):
+            extras_por_vaga.setdefault(int(r["vaga_id"]), {})[int(r["aluno_id"])] = {
+                "id": r["id"],
+                "codigo": r["codigo"],
+                "nome": r["nome"] or r["codigo"],
+            }
+    except Exception:
+        extras_por_vaga = {}
+    for vaga in vagas:
+        vid = vaga.get("id")
+        if not vid:
+            continue
+        turma = normalizar_texto(vaga.get("turma"))
+        base = serie_base(vaga.get("serie"))
+        extras = extras_por_vaga.get(int(vid), {})
+        lista = []
+        for item in por_escola.get(int(vaga.get("escola_id") or 0), []):
+            if normalizar_texto(item.get("turma")) != turma:
+                continue
+            if serie_base(item.get("serie")) != base:
+                continue
+            aluno = dict(item)
+            aluno["precisa_extra"] = bool(aluno.get("precisa_extra"))
+            aluno["extra"] = extras.get(int(aluno["id"]))
+            lista.append(aluno)
+        saida[int(vid)] = lista
+    return saida
 
 
 def alunos_da_vaga(conn, vaga) -> list[dict]:

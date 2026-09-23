@@ -32,6 +32,7 @@ from .alocacao import (
     definir_n_extras,
     enriquecer_vaga,
     enriquecer_vagas,
+    _agenda_ocupadas,
     finalizar_vaga,
     organizar,
     receber_prova,
@@ -388,7 +389,6 @@ def api_opcoes():
 @app.get("/api/resumo")
 def resumo():
     with get_db() as conn:
-        consolidar_municipios(conn)
         tot = conn.execute(
             """SELECT
                  (SELECT COUNT(DISTINCT e.municipio_id)
@@ -554,7 +554,6 @@ def recebimento_provas(municipio_id: int | None = None, data: str | None = None)
 @app.get("/api/municipios")
 def municipios():
     with get_db() as conn:
-        consolidar_municipios(conn)
         rows = rows_to_dicts(
             conn.execute(
                 """SELECT m.*,
@@ -898,7 +897,9 @@ def quadro(municipio_id: int):
         avisos = 0
         finalizadas = 0
 
-        for d in enriquecer_vagas(conn, [dict(raw) for raw in vagas]):
+        datas_vagas = {r["data"] for r in vagas if r["data"]}
+        agenda = _agenda_ocupadas(conn, datas_vagas or None)
+        for d in enriquecer_vagas(conn, [dict(raw) for raw in vagas], agenda):
             if d["vago"]:
                 livres += 1
             if d["tem_choque"]:
@@ -933,7 +934,6 @@ def quadro(municipio_id: int):
                     "vago": d["vago"],
                     "tem_choque": d["tem_choque"],
                     "tem_aviso": d["tem_aviso"],
-                    "problemas": d["problemas"],
                     "aplicador": None
                     if d["vago"]
                     else {
@@ -942,18 +942,12 @@ def quadro(municipio_id: int):
                         "nome": d["apl_nome"] or d["apl_codigo"],
                     },
                     "n_extras": d.get("n_extras") or 0,
-                    "extras": d.get("extras") or [],
                     "extras_preenchidos": d.get("extras_preenchidos") or 0,
                     "extras_faltam": d.get("extras_faltam") or 0,
                     "extras_tem_choque": bool(d.get("extras_tem_choque")),
                     "alunos_especiais": [
-                        {
-                            "id": a["id"],
-                            "nome": a["nome"],
-                            "necessidade": a.get("necessidade"),
-                            "tem_extra": bool(a.get("extra")),
-                        }
-                        for a in (d.get("alunos_especiais") or [])
+                        {"id": a["id"], "nome": a["nome"]}
+                        for a in (d.get("alunos_especiais") or [])[:5]
                     ],
                 }
             )
@@ -972,7 +966,7 @@ def quadro(municipio_id: int):
 
 
 @app.get("/api/vagas/{vaga_id}/candidatos")
-def candidatos(vaga_id: int, data: str | None = None):
+def candidatos(vaga_id: int, data: str | None = None, lista: str | None = None, q: str | None = None):
     with get_db() as conn:
         vaga = conn.execute(
             """SELECT v.*, e.nome AS escola_nome, e.rede, e.municipio_id,
@@ -988,13 +982,20 @@ def candidatos(vaga_id: int, data: str | None = None):
         ).fetchone()
         if not vaga:
             raise HTTPException(404, "Vaga não encontrada.")
-        d = enriquecer_vaga(conn, dict(vaga))
+        agenda = _agenda_ocupadas(conn)
+        d = enriquecer_vagas(conn, [dict(vaga)], agenda)[0]
         if data:
             d["data"] = data[:10]
+        titular = []
+        extra = []
+        if lista == "titular" or (lista is None and not d.get("aplicador_id")):
+            titular = candidatos_para_vaga(conn, vaga_id, data, agenda=agenda)
+        if lista == "extra":
+            extra = candidatos_para_extra(conn, vaga_id, data, agenda=agenda, q=q)
         return {
             "vaga": d,
-            "candidatos": candidatos_para_vaga(conn, vaga_id, data),
-            "candidatos_extra": candidatos_para_extra(conn, vaga_id, data),
+            "candidatos": titular,
+            "candidatos_extra": extra,
         }
 
 

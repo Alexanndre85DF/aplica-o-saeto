@@ -112,6 +112,14 @@ $$(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => mostrarView(btn.dataset.view));
 });
 
+async function atualizarQuadroSeAberto() {
+  if (state.view === "quadro" && $("#quadro-corpo")) {
+    await pintarQuadro();
+    return;
+  }
+  mostrarView("quadro");
+}
+
 function mostrarView(view, extra = {}) {
   state.view = view;
   if (extra.municipioId) state.municipioId = extra.municipioId;
@@ -234,7 +242,7 @@ async function abrirVaga(vagaId) {
   const alunosEsp = v.alunos_especiais || [];
   const nEx = alunosEsp.filter((a) => a.precisa_extra).length;
   const extras = v.extras || [];
-  const extraCands = (data.candidatos_extra || []).map(htmlCand).join("");
+  const extraCands = "";
   const listaAlunos = alunosEsp
     .map((al) => {
       const extra = al.extra;
@@ -339,7 +347,7 @@ async function abrirVaga(vagaId) {
         }),
       });
       fecharDrawer();
-      mostrarView("quadro");
+      await atualizarQuadroSeAberto();
     } catch (err) {
       alert(err.message);
     }
@@ -352,14 +360,14 @@ async function abrirVaga(vagaId) {
         body: JSON.stringify({ aplicador_id: null, repetir_par: repetir }),
       });
       fecharDrawer();
-      mostrarView("quadro");
+      await atualizarQuadroSeAberto();
     };
   }
   $("#btn-excluir-vaga").onclick = async () => {
     if (!confirm("Isso APAGA a turma do quadro, não só o aplicador. Para só tirar a pessoa e a data, cancele e use Tirar aplicador. Apagar de vez?")) return;
     await api(`/api/vagas/${vagaId}`, { method: "DELETE" });
     fecharDrawer();
-    mostrarView("quadro");
+    await atualizarQuadroSeAberto();
   };
   $("#btn-status-vaga").onclick = async () => {
     const feita = v.status === "FINALIZADA";
@@ -368,7 +376,7 @@ async function abrirVaga(vagaId) {
       body: JSON.stringify({ finalizada: !feita }),
     });
     fecharDrawer();
-    mostrarView("quadro");
+    await atualizarQuadroSeAberto();
   };
   const recarregarTurma = async () => {
     if (state.municipioId) {
@@ -433,45 +441,62 @@ async function abrirVaga(vagaId) {
   };
   const livres = $$('input[name="aluno-extra"]:not(:disabled)');
   if (livres.length === 1) livres[0].checked = true;
-  $$("#lista-extras .cand").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      if (btn.dataset.ok === "1" && (v.extras || []).some((e) => String(e.id) === String(btn.dataset.id))) {
-        return;
-      }
-      const alunoId = alunoEspSelecionado();
-      if (alunosEsp.length && !alunoId) {
-        alert("Marque o estudante que este extra vai acompanhar.");
-        return;
-      }
-      const forcar = btn.dataset.ok !== "1";
-      if (forcar && !confirm("Este aplicador tem choque neste horário. Colocar como extra mesmo assim?")) return;
-      try {
-        await api(`/api/vagas/${vagaId}/extras`, {
-          method: "POST",
-          body: JSON.stringify({
-            aplicador_id: Number(btn.dataset.id),
-            forcar,
-            aluno_id: alunoId,
-          }),
-        });
-        await recarregarTurma();
-      } catch (err) {
-        alert(err.message);
-      }
+  const ligarExtras = () => {
+    $$("#lista-extras .cand").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (btn.dataset.ok === "1" && (v.extras || []).some((e) => String(e.id) === String(btn.dataset.id))) {
+          return;
+        }
+        const alunoId = alunoEspSelecionado();
+        if (alunosEsp.length && !alunoId) {
+          alert("Marque o estudante que este extra vai acompanhar.");
+          return;
+        }
+        const forcar = btn.dataset.ok !== "1";
+        if (forcar && !confirm("Este aplicador tem choque neste horário. Colocar como extra mesmo assim?")) return;
+        try {
+          await api(`/api/vagas/${vagaId}/extras`, {
+            method: "POST",
+            body: JSON.stringify({
+              aplicador_id: Number(btn.dataset.id),
+              forcar,
+              aluno_id: alunoId,
+            }),
+          });
+          await recarregarTurma();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
     });
-  });
+  };
+  let buscaExtraT = null;
   const filtrarExtras = () => {
     const q = ($("#busca-extra")?.value || "").trim().toLowerCase();
-    const okBusca = q.length >= 2;
-    $$("#lista-extras .cand").forEach((btn) => {
-      const hay = (btn.dataset.busca || btn.textContent || "").toLowerCase();
-      btn.classList.toggle("hidden", !okBusca || !hay.includes(q));
-    });
     const dica = $("#dica-extra");
-    if (dica) dica.classList.toggle("hidden", okBusca);
+    const caixa = $("#lista-extras");
+    if (dica) dica.classList.toggle("hidden", q.length >= 2);
+    if (!caixa) return;
+    if (q.length < 2) {
+      caixa.innerHTML = "";
+      return;
+    }
+    caixa.innerHTML = `<p class="escola-meta">Buscando…</p>`;
+    clearTimeout(buscaExtraT);
+    buscaExtraT = setTimeout(async () => {
+      try {
+        const dia = dataEscolhida();
+        const qs = new URLSearchParams({ lista: "extra", q });
+        if (dia) qs.set("data", dia);
+        const d = await api(`/api/vagas/${vagaId}/candidatos?${qs}`);
+        caixa.innerHTML = (d.candidatos_extra || []).map(htmlCand).join("") || `<p class="escola-meta">Ninguém com esse nome.</p>`;
+        ligarExtras();
+      } catch (err) {
+        caixa.innerHTML = `<p class="escola-meta">${escHtml(err.message)}</p>`;
+      }
+    }, 200);
   };
   $("#busca-extra")?.addEventListener("input", filtrarExtras);
-  filtrarExtras();
   const filtrarApl = () => {
     const q = ($("#busca-apl")?.value || "").trim().toLowerCase();
     $$("#lista-cands .cand").forEach((btn) => {
@@ -531,7 +556,7 @@ async function abrirVaga(vagaId) {
             body: JSON.stringify({ aplicador_id: Number(btn.dataset.id), data: dia }),
           });
           fecharDrawer();
-          mostrarView("quadro");
+          await atualizarQuadroSeAberto();
         } catch (err) {
           alert(err.message);
         }
@@ -542,7 +567,7 @@ async function abrirVaga(vagaId) {
   const atualizarCandsDoDia = async () => {
     const dia = dataEscolhida();
     const qs = dia ? `?data=${encodeURIComponent(dia)}` : "";
-    const d = await api(`/api/vagas/${vagaId}/candidatos${qs}`);
+    const d = await api(`/api/vagas/${vagaId}/candidatos${qs}${qs ? "&" : "?"}lista=titular`);
     candsAtuais = d.candidatos || [];
   };
 
@@ -830,6 +855,11 @@ async function carregarProvas() {
 
 async function carregarQuadro() {
   titulo("Quadro de aplicação", "Grade por escola, turno e dia — como um horário, com vago e choque visíveis.");
+  if ($("#sel-mun") && state.municipioId && $("#quadro-corpo")) {
+    $("#sel-mun").value = String(state.municipioId);
+    await pintarQuadro();
+    return;
+  }
   const munP = apiMunicipios();
   let quadroP = state.municipioId
     ? api(`/api/quadro?municipio_id=${state.municipioId}`)
@@ -1812,7 +1842,7 @@ async function abrirNovaAplicacao(municipioId) {
         }),
       });
       fecharDrawer();
-      mostrarView("quadro");
+      await atualizarQuadroSeAberto();
     } catch (err) {
       alert(err.message);
     }
