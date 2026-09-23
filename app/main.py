@@ -63,6 +63,7 @@ from .cadastro import (
 )
 from .config import DATA_DIR, localizar_planilha, usando_nuvem, usando_postgres, usando_supabase
 from .diarias import exportar_xlsx, gravar_ajuste, gravar_config, montar_folha
+from .especiais import criar_aluno_na_vaga
 from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
 from .regras import dias_do_municipio, fmt_data
@@ -90,6 +91,11 @@ class ExtraBody(BaseModel):
     aplicador_id: int
     forcar: bool = False
     aluno_id: int | None = None
+
+
+class AlunoEspecialBody(BaseModel):
+    nome: str
+    necessidade: str | None = None
 
 
 class NExtrasBody(BaseModel):
@@ -1022,6 +1028,15 @@ def api_n_extras(vaga_id: int, body: NExtrasBody):
         if not resultado.get("ok"):
             raise HTTPException(400, resultado.get("erro") or "Não foi possível gravar os extras.")
         return resultado
+
+
+@app.post("/api/vagas/{vaga_id}/alunos-especiais")
+def api_criar_aluno_especial(vaga_id: int, body: AlunoEspecialBody):
+    with get_db() as conn:
+        try:
+            return criar_aluno_na_vaga(conn, vaga_id, body.nome, body.necessidade)
+        except Exception as exc:
+            _cadastro_erro(exc)
 
 
 @app.post("/api/vagas/{vaga_id}/extras")

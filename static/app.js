@@ -218,7 +218,7 @@ async function abrirVaga(vagaId) {
   };
   const cands = data.candidatos.map(htmlCand).join("");
   const alunosEsp = v.alunos_especiais || [];
-  const nEx = Math.max(Number(v.n_extras || 0), alunosEsp.length);
+  const nEx = alunosEsp.filter((a) => a.precisa_extra).length;
   const extras = v.extras || [];
   const extraCands = (data.candidatos_extra || []).map(htmlCand).join("");
   const listaAlunos = alunosEsp
@@ -272,20 +272,24 @@ async function abrirVaga(vagaId) {
       <div id="lista-cands">${cands}</div>`}
     </section>
     <section class="bloco-extras">
-      <h3>2. Depois, o extra</h3>
+      <h3>2. Extra por estudante</h3>
       ${temAplicador ? `
-      ${alunosEsp.length ? `<p class="escola-meta">${alunosEsp.length} estudante(s) especial(is) nesta turma. Marque o aluno e busque quem acompanha.</p>
-      ${listaAlunos}` : `<p class="escola-meta">Quantos alunos especiais? Salve. Depois busque pelo nome quem acompanha.</p>
-      <label class="campo">Alunos especiais
-        <input type="number" id="n-extras" min="0" step="1" value="${nEx}" />
-      </label>
-      <button type="button" class="btn sm" id="btn-salvar-extras" style="margin:8px 0 12px">Salvar quantidade</button>`}
-      <p class="escola-meta">${extras.length} de ${nEx} extra(s) nesta turma.</p>
+      ${alunosEsp.length ? `<p class="escola-meta">Marque o aluno e busque quem acompanha. ${extras.length} de ${nEx} com extra.</p>
+      ${listaAlunos}` : `<p class="aviso-diaria">Nenhum aluno especial nesta turma. Extra só entra com nome da lista. Inclua abaixo ou importe o relatório de confirmação da base.</p>`}
+      <form id="form-aluno-esp" class="form-grid" style="margin-top:8px">
+        <label class="campo">Nome do estudante
+          <input name="nome" required placeholder="Nome completo" />
+        </label>
+        <label class="campo">Necessidade
+          <input name="necessidade" placeholder="Opcional" />
+        </label>
+        <button class="btn" type="submit">Incluir na turma</button>
+      </form>
       ${listaExtras}
-      ${nEx > 0 ? `<input type="text" id="busca-extra" placeholder="Digite o nome de quem vai ser extra" autocomplete="off" />
-      <p id="dica-extra" class="escola-meta">${alunosEsp.length ? "Marque o estudante acima e digite pelo menos 2 letras do extra." : "Digite pelo menos 2 letras do nome."}</p>
+      ${alunosEsp.length ? `<input type="text" id="busca-extra" placeholder="Digite o nome de quem vai ser extra" autocomplete="off" />
+      <p id="dica-extra" class="escola-meta">Marque o estudante acima e digite pelo menos 2 letras do extra.</p>
       <div id="lista-extras">${extraCands}</div>` : ""}
-      ` : `<p class="escola-meta">Escolha o aplicador em cima. Aí você encaixa o extra no estudante da turma.</p>`}
+      ` : `<p class="escola-meta">Escolha o aplicador em cima. Depois o extra entra no nome do estudante.</p>`}
     </section>
     ${problemas ? `<ul>${problemas}</ul>` : ""}
     <p>${
@@ -382,12 +386,16 @@ async function abrirVaga(vagaId) {
     });
   });
 
-  $("#btn-salvar-extras")?.addEventListener("click", async () => {
-    const n = Number($("#n-extras")?.value || 0);
+  $("#form-aluno-esp")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
     try {
-      await api(`/api/vagas/${vagaId}/n-extras`, {
+      await api(`/api/vagas/${vagaId}/alunos-especiais`, {
         method: "POST",
-        body: JSON.stringify({ n_extras: n }),
+        body: JSON.stringify({
+          nome: f.nome.value,
+          necessidade: f.necessidade.value || null,
+        }),
       });
       await recarregarTurma();
     } catch (err) {

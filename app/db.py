@@ -868,6 +868,12 @@ def init_db() -> None:
             print("Aviso: ainda não gravou no Supabase.", exc)
     with get_db() as conn:
         _limpar_datas_inventadas(conn)
+        try:
+            from .especiais import alinhar_n_extras_todas
+
+            alinhar_n_extras_todas(conn)
+        except Exception:
+            pass
 
 
 def _migrar_sqlite_se_nuvem_vazia() -> None:

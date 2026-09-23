@@ -415,12 +415,14 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             lista.append(extra)
         alunos = alunos_da_vaga(conn, vaga)
         vaga["alunos_especiais"] = alunos
-        n_alunos = len(alunos)
-        n = max(_n_extras(vaga), n_alunos)
+        n = sum(1 for a in alunos if a.get("precisa_extra"))
+        if _n_extras(vaga) != n:
+            conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, vaga["id"]))
         vaga["n_extras"] = n
         vaga["extras"] = lista
-        vaga["extras_preenchidos"] = len(lista)
-        vaga["extras_faltam"] = max(0, n - len(lista))
+        nomeados = sum(1 for a in alunos if a.get("extra"))
+        vaga["extras_preenchidos"] = nomeados
+        vaga["extras_faltam"] = max(0, n - nomeados)
         vaga["extras_tem_choque"] = extras_choque
         if extras_choque:
             vaga["tem_choque"] = True
@@ -455,28 +457,22 @@ def _checar_extra(vaga: dict, aplicador_id: int, agenda: dict) -> dict:
 
 
 def definir_n_extras(conn, vaga_id: int, n_extras: int) -> dict:
-    vaga = conn.execute("SELECT id, n_extras FROM vagas WHERE id = ?", (vaga_id,)).fetchone()
+    vaga = conn.execute(
+        "SELECT id, escola_id, turma, serie FROM vagas WHERE id = ?",
+        (vaga_id,),
+    ).fetchone()
     if not vaga:
         return {"ok": False, "erro": "Turma não encontrada."}
-    try:
-        n = max(0, int(n_extras))
-    except (TypeError, ValueError):
-        return {"ok": False, "erro": "Informe um número de alunos especiais."}
-    atuais = len(extras_da_vaga(conn, vaga_id))
-    if n < atuais:
-        return {
-            "ok": False,
-            "erro": f"Já há {atuais} extra(s) nesta turma. Tire alguém antes de diminuir.",
-        }
-    conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, vaga_id))
+    from .especiais import _sincronizar_n_extras
+
+    n = _sincronizar_n_extras(conn, vaga=dict(vaga))
     return {"ok": True, "n_extras": n, "extras": extras_da_vaga(conn, vaga_id)}
 
 
 def _cupos_extra(conn, vaga: dict) -> int:
-    from .especiais import alunos_da_vaga
+    from .especiais import n_extras_da_vaga
 
-    n_alunos = len(alunos_da_vaga(conn, vaga))
-    return max(_n_extras(vaga), n_alunos)
+    return n_extras_da_vaga(conn, vaga)
 
 
 def _gravar_extra(conn, vaga_id: int, aplicador_id: int, aluno_id: int | None) -> None:
@@ -526,16 +522,23 @@ def alocar_extra(
     if not pessoa or not pessoa["ativo"]:
         return {"ok": False, "erro": "Aplicador não encontrado ou inativo."}
     aluno = None
-    if aluno_id:
-        aluno = conn.execute(
-            "SELECT * FROM alunos_especiais WHERE id = ?", (aluno_id,)
-        ).fetchone()
-        if not aluno:
-            return {"ok": False, "erro": "Estudante especial não encontrado."}
-        aluno = dict(aluno)
+    if not aluno_id:
+        return {
+            "ok": False,
+            "erro": "Marque o estudante da lista que este extra vai acompanhar.",
+        }
+    aluno = conn.execute(
+        "SELECT * FROM alunos_especiais WHERE id = ?", (aluno_id,)
+    ).fetchone()
+    if not aluno:
+        return {"ok": False, "erro": "Estudante especial não encontrado."}
+    aluno = dict(aluno)
     n = _cupos_extra(conn, vaga)
     if n <= 0:
-        return {"ok": False, "erro": "Informe quantos alunos especiais esta turma tem."}
+        return {
+            "ok": False,
+            "erro": "Esta turma não tem aluno especial na lista. Inclua o nome ou importe o relatório.",
+        }
     atuais = extras_da_vaga(conn, vaga_id)
     ja = next((x for x in atuais if x["id"] == aplicador_id), None)
     if ja and (not aluno_id or ja.get("aluno_id") == aluno_id):

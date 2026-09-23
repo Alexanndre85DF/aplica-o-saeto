@@ -48,17 +48,24 @@ def _vagas_do_aluno(conn, aluno) -> list[dict]:
     ]
 
 
-def _sincronizar_n_extras(conn, aluno) -> None:
-    vagas = _vagas_do_aluno(conn, aluno)
-    n = conn.execute(
-        """SELECT COUNT(*) n FROM alunos_especiais
-           WHERE escola_id = ? AND turma = ? AND serie = ?""",
-        (aluno["escola_id"], aluno["turma"], aluno["serie"]),
-    ).fetchone()["n"]
-    for vaga in vagas:
-        atual = int(vaga.get("n_extras") or 0)
-        if n > atual:
-            conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, vaga["id"]))
+def n_extras_da_vaga(conn, vaga) -> int:
+    return sum(1 for a in alunos_da_vaga(conn, vaga) if a.get("precisa_extra"))
+
+
+def _sincronizar_n_extras(conn, aluno=None, vaga=None) -> int:
+    alvos = [vaga] if vaga else _vagas_do_aluno(conn, aluno or {})
+    n = 0
+    for item in alvos:
+        n = n_extras_da_vaga(conn, item)
+        conn.execute("UPDATE vagas SET n_extras = ? WHERE id = ?", (n, item["id"]))
+    return n
+
+
+def alinhar_n_extras_todas(conn) -> int:
+    rows = conn.execute("SELECT id, escola_id, turma, serie FROM vagas").fetchall()
+    for row in rows:
+        _sincronizar_n_extras(conn, vaga=dict(row))
+    return len(rows)
 
 
 def alunos_da_vaga(conn, vaga) -> list[dict]:
@@ -104,6 +111,31 @@ def alunos_da_vaga(conn, vaga) -> list[dict]:
         item["extra"] = extras.get(int(item["id"]))
         lista.append(item)
     return lista
+
+
+def criar_aluno_na_vaga(conn, vaga_id: int, nome: str, necessidade: str | None = None) -> dict:
+    vaga = conn.execute(
+        "SELECT id, escola_id, turma, serie, n_extras FROM vagas WHERE id = ?",
+        (vaga_id,),
+    ).fetchone()
+    if not vaga:
+        raise LookupError("Turma não encontrada.")
+    nome = normalizar_texto(nome)
+    if not nome:
+        raise ValueError("Informe o nome do estudante.")
+    turma = normalizar_texto(vaga["turma"])
+    if not turma:
+        raise ValueError("Esta vaga ainda não tem o nome da turma. Cadastre a turma antes.")
+    serie = serie_base(vaga["serie"])
+    conn.execute(
+        """INSERT INTO alunos_especiais(
+               escola_id, turma, serie, nome, necessidade, precisa_extra
+           ) VALUES (?, ?, ?, ?, ?, 1)""",
+        (vaga["escola_id"], turma, serie, nome, normalizar_texto(necessidade) or None),
+    )
+    aluno = {"escola_id": vaga["escola_id"], "turma": turma, "serie": serie}
+    _sincronizar_n_extras(conn, aluno)
+    return {"ok": True, "alunos": alunos_da_vaga(conn, dict(vaga))}
 
 
 def importar_confirmacao(caminho: Path, conn) -> dict:
@@ -179,6 +211,7 @@ def importar_confirmacao(caminho: Path, conn) -> dict:
             aluno = {"escola_id": escola["id"], "turma": turma, "serie": serie}
             _sincronizar_n_extras(conn, aluno)
             gravados += 1
+    alinhar_n_extras_todas(conn)
     return {
         "ok": True,
         "tipo": "especiais",
