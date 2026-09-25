@@ -21,6 +21,21 @@ def _nome_aplicador(row) -> str | None:
     return row["nome"] or row["codigo"]
 
 
+def _num_apl(item) -> int:
+    try:
+        n = item["numero"] if hasattr(item, "keys") and "numero" in item.keys() else None
+        if n is not None and str(n).strip() != "":
+            return int(n)
+    except (TypeError, ValueError, KeyError):
+        pass
+    try:
+        codigo = str(item["codigo"] or "")
+    except Exception:
+        codigo = ""
+    dig = "".join(ch for ch in codigo if ch.isdigit())
+    return int(dig) if dig else 9999
+
+
 def _vago_msg() -> dict:
     return {
         "tipo": "vago",
@@ -693,6 +708,7 @@ def candidatos_para_extra(
                 "id": a["id"],
                 "codigo": a["codigo"],
                 "nome": a["nome"] or a["codigo"],
+                "numero": a["numero"] if "numero" in a.keys() else None,
                 "carga": len(titular_slots),
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
@@ -704,16 +720,7 @@ def candidatos_para_extra(
                 "selecionado": checagem["ja_extra"],
             }
         )
-    lista.sort(
-        key=lambda x: (
-            not x["selecionado"],
-            not x["identificado"],
-            not x["ok"],
-            not x["no_municipio"],
-            x["carga"],
-            x["nome"],
-        )
-    )
+    lista.sort(key=lambda x: (not x["selecionado"], _num_apl(x)))
     return lista
 
 
@@ -802,6 +809,7 @@ def candidatos_para_vaga(
                 "id": a["id"],
                 "codigo": a["codigo"],
                 "nome": a["nome"] or a["codigo"],
+                "numero": a["numero"] if "numero" in a.keys() else None,
                 "carga": len(titular_slots),
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
@@ -816,16 +824,7 @@ def candidatos_para_vaga(
             }
         )
 
-    lista.sort(
-        key=lambda x: (
-            not x["selecionado"],
-            x["cadastro_extra"],
-            not x["ok"],
-            not x["no_municipio"],
-            x["carga"],
-            x["nome"],
-        )
-    )
+    lista.sort(key=lambda x: (not x["selecionado"], _num_apl(x)))
     return lista
 
 
