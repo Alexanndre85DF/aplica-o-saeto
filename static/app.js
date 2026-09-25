@@ -379,10 +379,7 @@ async function abrirVaga(vagaId) {
     await atualizarQuadroSeAberto();
   };
   const recarregarTurma = async () => {
-    if (state.municipioId) {
-      const q = await api(`/api/quadro?municipio_id=${state.municipioId}`);
-      await pintarQuadro(q);
-    }
+    await pintarQuadro();
     await abrirVaga(vagaId);
   };
 
@@ -858,24 +855,40 @@ async function carregarProvas() {
   });
 }
 
+function quadroTodos() {
+  return !state.municipioId;
+}
+
+function quadroUrl() {
+  return state.municipioId
+    ? `/api/quadro?municipio_id=${state.municipioId}`
+    : "/api/quadro";
+}
+
+function exigirMunicipioQuadro(acao) {
+  if (state.municipioId) return true;
+  alert(`Escolha um município no filtro para ${acao}. Em Todos dá para ver a escala toda, não para alterar de uma vez.`);
+  return false;
+}
+
 async function carregarQuadro() {
   titulo("Quadro de aplicação", "Grade por escola, turno e dia — como um horário, com vago e choque visíveis.");
-  if ($("#sel-mun") && state.municipioId && $("#quadro-corpo")) {
-    $("#sel-mun").value = String(state.municipioId);
+  if ($("#sel-mun") && $("#quadro-corpo")) {
+    $("#sel-mun").value = String(state.municipioId || 0);
     await pintarQuadro();
     return;
   }
   const munP = apiMunicipios();
-  let quadroP = state.municipioId
-    ? api(`/api/quadro?municipio_id=${state.municipioId}`)
+  let quadroP = state.municipioId != null
+    ? api(quadroUrl())
     : null;
   const municipios = await munP;
-  if (!state.municipioId && municipios.length) {
+  if (state.municipioId == null && municipios.length) {
     state.municipioId = municipios[0].id;
-    quadroP = api(`/api/quadro?municipio_id=${state.municipioId}`);
+    quadroP = api(quadroUrl());
   }
-  const munOpts = municipios
-    .map((m) => `<option value="${m.id}" ${m.id === state.municipioId ? "selected" : ""}>${tit(m.nome)}</option>`)
+  const munOpts = [`<option value="0" ${quadroTodos() ? "selected" : ""}>Todos</option>`]
+    .concat(municipios.map((m) => `<option value="${m.id}" ${m.id === state.municipioId ? "selected" : ""}>${tit(m.nome)}</option>`))
     .join("");
 
   $("#view-quadro").innerHTML = `
@@ -898,6 +911,8 @@ async function carregarQuadro() {
       <button class="btn ghost" id="btn-restaurar-turmas">Restaurar turmas apagadas</button>
       <button class="btn ghost" id="btn-nova-vaga">Nova aplicação</button>
       <button class="btn warn" id="btn-limpar">Limpar alocações</button>
+      <button class="btn gold" id="btn-pdf-quadro">PDF</button>
+      <button class="btn" id="btn-xlsx-quadro">Excel</button>
       <div class="legend">
         <span class="chip vago">vago</span>
         <span class="chip choque">choque</span>
@@ -912,23 +927,26 @@ async function carregarQuadro() {
   $("#so-vagos").checked = state.filtroVago;
   $("#sel-status").value = state.filtroStatus;
   $("#sel-mun").addEventListener("change", (e) => {
-    state.municipioId = Number(e.target.value);
+    state.municipioId = Number(e.target.value) || 0;
     pintarQuadro();
   });
   $("#sel-rede").addEventListener("change", (e) => {
     state.filtroRede = e.target.value;
-    pintarQuadro();
+    pintarQuadro(state._ultimoQuadro);
   });
   $("#so-vagos").addEventListener("change", (e) => {
     state.filtroVago = e.target.checked;
-    pintarQuadro();
+    pintarQuadro(state._ultimoQuadro);
   });
   $("#sel-status").addEventListener("change", (e) => {
     state.filtroStatus = e.target.value;
-    pintarQuadro();
+    pintarQuadro(state._ultimoQuadro);
   });
-  $("#btn-organizar").onclick = () => abrirPainelAlocar();
+  $("#btn-organizar").onclick = () => {
+    if (exigirMunicipioQuadro("alocar")) abrirPainelAlocar();
+  };
   $("#btn-reorganizar").onclick = async () => {
+    if (!exigirMunicipioQuadro("recomeçar a escala")) return;
     if (!confirm("Apagar as alocações deste município e montar a escala de novo nestes dias?")) return;
     try {
       if ((state.diasMun || []).length) {
@@ -942,7 +960,10 @@ async function carregarQuadro() {
       alert(err.message);
     }
   };
-  if ($("#btn-nova-vaga")) $("#btn-nova-vaga").onclick = () => abrirNovaAplicacao(state.municipioId);
+  if ($("#btn-nova-vaga")) $("#btn-nova-vaga").onclick = () => {
+    if (exigirMunicipioQuadro("criar aplicação")) return;
+    abrirNovaAplicacao(state.municipioId);
+  };
   if ($("#btn-restaurar-turmas")) $("#btn-restaurar-turmas").onclick = async () => {
     if (!confirm("Trazer de volta só as turmas da planilha que foram apagadas? O que já está no quadro permanece.")) return;
     try {
@@ -953,7 +974,26 @@ async function carregarQuadro() {
       alert(err.message);
     }
   };
+  const qsRelatorioQuadro = () => {
+    const qs = new URLSearchParams();
+    if (state.municipioId) qs.set("municipio_id", String(state.municipioId));
+    qs.set("rede", state.filtroRede || "TODAS");
+    if (state.filtroVago) qs.set("so_vagos", "1");
+    qs.set("status", state.filtroStatus || "TODAS");
+    return qs.toString();
+  };
+  if ($("#btn-pdf-quadro")) {
+    $("#btn-pdf-quadro").onclick = () => {
+      window.location.href = `/api/quadro/pdf?${qsRelatorioQuadro()}`;
+    };
+  }
+  if ($("#btn-xlsx-quadro")) {
+    $("#btn-xlsx-quadro").onclick = () => {
+      window.location.href = `/api/quadro/xlsx?${qsRelatorioQuadro()}`;
+    };
+  }
   $("#btn-limpar").onclick = async () => {
+    if (!exigirMunicipioQuadro("limpar alocações")) return;
     if (!confirm("Deixar todas as vagas deste município livres?")) return;
     await api("/api/quadro/limpar", {
       method: "POST",
@@ -1222,27 +1262,8 @@ function ligarPeriodoQuadro() {
   });
 }
 
-async function pintarQuadro(preloaded = null) {
-  if (!state.municipioId) return;
-  const q = preloaded
-    ? await preloaded
-    : await api(`/api/quadro?municipio_id=${state.municipioId}`);
-  const periodoHtml = htmlPeriodo(q);
-  if (!q.vagas) {
-    $("#quadro-corpo").innerHTML = `
-      <section class="panel">
-        <h2>${tit(q.municipio.nome)}</h2>
-        ${periodoHtml}
-        <p>Ainda não há aplicações neste município. Cadastre uma escola e depois uma vaga.</p>
-        <button class="btn gold" id="btn-vazia-vaga">Nova aplicação</button>
-        <button class="btn ghost" id="btn-ir-cadastro">Ir para cadastros</button>
-      </section>`;
-    $("#btn-vazia-vaga").onclick = () => abrirNovaAplicacao(state.municipioId);
-    $("#btn-ir-cadastro").onclick = () => mostrarView("cadastro");
-    ligarPeriodoQuadro();
-    return;
-  }
-  const linhas = q.linhas.filter((l) => {
+function filtrarLinhasQuadro(q) {
+  return (q.linhas || []).filter((l) => {
     if (state.filtroRede !== "TODAS" && l.rede !== state.filtroRede) return false;
     if (state.filtroVago) {
       return q.datas.some((d) => (l.celulas[d] || []).some((s) => s.vago));
@@ -1255,7 +1276,11 @@ async function pintarQuadro(preloaded = null) {
     }
     return true;
   });
-  const head = q.datas_fmt.map((d) => `<th>${d}</th>`).join("");
+}
+
+function htmlTabelaQuadro(q) {
+  const linhas = filtrarLinhasQuadro(q);
+  const head = (q.datas_fmt || []).map((d) => `<th>${d}</th>`).join("");
   const body = linhas
     .map((l) => {
       const cells = q.datas
@@ -1306,23 +1331,72 @@ async function pintarQuadro(preloaded = null) {
       </tr>`;
     })
     .join("");
+  return `<div class="grade-wrap">
+      <table class="grade">
+        <thead><tr><th class="sticky">Escola / turno</th>${head}</tr></thead>
+        <tbody>${body || `<tr><td colspan="${(q.datas || []).length + 1}">Nada neste filtro.</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
 
+function ligarCliquesQuadro() {
+  $$("#quadro-corpo [data-vaga]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirVaga(Number(btn.dataset.vaga)));
+  });
+}
+
+async function pintarQuadro(preloaded = null) {
+  if (state.municipioId == null) return;
+  if (!preloaded && $("#quadro-corpo")) {
+    $("#quadro-corpo").innerHTML = `<section class="panel"><p>${quadroTodos() ? "Montando o quadro de todos os municípios…" : "Montando o quadro…"}</p></section>`;
+  }
+  const q = preloaded ? await preloaded : await api(quadroUrl());
+  state._ultimoQuadro = q;
+  if (q.todos) {
+    const blocos = (q.quadros || [])
+      .map((bloco) => `
+        <section class="quadro-mun">
+          <section class="panel" style="margin-bottom:10px">
+            <h2>${tit(bloco.municipio.nome)}</h2>
+            <p style="margin:0;color:var(--ink-soft)">${bloco.vagas} aplicações · ${bloco.livres} vagas · ${bloco.finalizadas || 0} aplicadas · ${bloco.choques} choques</p>
+          </section>
+          ${htmlTabelaQuadro(bloco)}
+        </section>`)
+      .join("");
+    $("#quadro-corpo").innerHTML = `
+      <section class="panel" style="margin-bottom:14px">
+        <h2>Todos os municípios</h2>
+        <p style="margin:0;color:var(--ink-soft)">${q.vagas} aplicações · ${q.livres} vagas · ${q.finalizadas || 0} aplicadas · ${q.choques} choques. Para alocar, limpar ou marcar dias, volte a um município no filtro.</p>
+      </section>
+      ${blocos || `<section class="panel"><p>Nenhuma aplicação no quadro ainda.</p></section>`}
+    `;
+    ligarCliquesQuadro();
+    return;
+  }
+  const periodoHtml = htmlPeriodo(q);
+  if (!q.vagas) {
+    $("#quadro-corpo").innerHTML = `
+      <section class="panel">
+        <h2>${tit(q.municipio.nome)}</h2>
+        ${periodoHtml}
+        <p>Ainda não há aplicações neste município. Cadastre uma escola e depois uma vaga.</p>
+        <button class="btn gold" id="btn-vazia-vaga">Nova aplicação</button>
+        <button class="btn ghost" id="btn-ir-cadastro">Ir para cadastros</button>
+      </section>`;
+    $("#btn-vazia-vaga").onclick = () => abrirNovaAplicacao(state.municipioId);
+    $("#btn-ir-cadastro").onclick = () => mostrarView("cadastro");
+    ligarPeriodoQuadro();
+    return;
+  }
   $("#quadro-corpo").innerHTML = `
     <section class="panel" style="margin-bottom:14px">
       <h2>${tit(q.municipio.nome)}</h2>
       ${periodoHtml}
       <p style="margin:8px 0 0;color:var(--ink-soft)">${q.vagas} aplicações · ${q.livres} vagas · ${q.finalizadas || 0} aplicadas · ${q.choques} choques · Salvar dias só abre as colunas; depois use Alocar com o que tem</p>
     </section>
-    <div class="grade-wrap">
-      <table class="grade">
-        <thead><tr><th class="sticky">Escola / turno</th>${head}</tr></thead>
-        <tbody>${body || `<tr><td colspan="${q.datas.length + 1}">Nada neste filtro.</td></tr>`}</tbody>
-      </table>
-    </div>
+    ${htmlTabelaQuadro(q)}
   `;
-  $$("#quadro-corpo [data-vaga]").forEach((btn) => {
-    btn.addEventListener("click", () => abrirVaga(Number(btn.dataset.vaga)));
-  });
+  ligarCliquesQuadro();
   ligarPeriodoQuadro();
 }
 
@@ -1601,7 +1675,8 @@ async function carregarDiarias() {
           <input name="valor_padrao" type="text" value="${escHtml(String(folha.valor_padrao).replace(".", ","))}" />
         </label>
         <button class="btn" type="submit">Salvar valor</button>
-        <button class="btn gold" type="button" id="btn-export-diaria">Exportar Excel</button>
+        <button class="btn gold" type="button" id="btn-pdf-diaria">PDF</button>
+        <button class="btn" type="button" id="btn-xlsx-diaria">Excel</button>
       </form>
       ${destinos.length ? `
       <table class="tabela" style="margin-top:12px">
@@ -1712,8 +1787,19 @@ async function carregarDiarias() {
       };
     });
   };
-  $("#btn-export-diaria").onclick = () => {
-    window.location.href = "/api/diarias/export";
+  const qsRelatorioDiaria = () => {
+    const qs = new URLSearchParams();
+    if (state.diariaMun) qs.set("municipio_id", String(state.diariaMun));
+    if ((state.buscaDiaria || "").trim()) qs.set("q", state.buscaDiaria.trim());
+    return qs.toString();
+  };
+  $("#btn-pdf-diaria").onclick = () => {
+    const extra = qsRelatorioDiaria();
+    window.location.href = extra ? `/api/diarias/pdf?${extra}` : "/api/diarias/pdf";
+  };
+  $("#btn-xlsx-diaria").onclick = () => {
+    const extra = qsRelatorioDiaria();
+    window.location.href = extra ? `/api/diarias/xlsx?${extra}` : "/api/diarias/xlsx";
   };
   $("#form-valor-diaria").onsubmit = async (ev) => {
     ev.preventDefault();

@@ -438,6 +438,9 @@ select, input[type="text"] {
 
 .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
+.quadro-mun { margin-bottom: 22px; }
+.quadro-mun .grade-wrap { margin-top: 0; }
+
 .grade-wrap {
   overflow: auto;
   border: 0;

@@ -63,7 +63,15 @@ from .cadastro import (
     criar_lote_aplicadores,
 )
 from .config import DATA_DIR, localizar_planilha, usando_nuvem, usando_postgres, usando_supabase
-from .diarias import exportar_xlsx, gravar_ajuste, gravar_config, montar_folha
+from .diarias import gravar_ajuste, gravar_config, montar_folha
+from .relatorio import (
+    gerar_pdf_diarias,
+    gerar_xlsx_diarias,
+    gerar_pdf_quadro,
+    gerar_xlsx_quadro,
+    nome_arquivo_pdf,
+    nome_arquivo_xlsx,
+)
 from .especiais import criar_aluno_na_vaga
 from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
@@ -859,110 +867,191 @@ def api_excluir_vaga(vaga_id: int):
     return {"ok": True}
 
 
+_SQL_VAGAS_QUADRO = """
+SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
+       e.rede, e.rural, e.municipio_id,
+       a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome
+FROM vagas v
+JOIN escolas e ON e.id = v.escola_id
+LEFT JOIN aplicadores a ON a.id = v.aplicador_id
+"""
+
+
+def _celula_quadro(d: dict) -> dict:
+    return {
+        "id": d["id"],
+        "serie": d["serie"],
+        "ordem": d["ordem"],
+        "turno": d["turno"],
+        "data": d["data"],
+        "turma": d.get("turma"),
+        "n_alunos": d.get("n_alunos"),
+        "status": d["status"],
+        "vago": d["vago"],
+        "tem_choque": d["tem_choque"],
+        "tem_aviso": d["tem_aviso"],
+        "aplicador": None
+        if d["vago"]
+        else {
+            "id": d["apl_id"],
+            "codigo": d["apl_codigo"],
+            "nome": d["apl_nome"] or d["apl_codigo"],
+        },
+        "n_extras": d.get("n_extras") or 0,
+        "extras_preenchidos": d.get("extras_preenchidos") or 0,
+        "extras_faltam": d.get("extras_faltam") or 0,
+        "extras_tem_choque": bool(d.get("extras_tem_choque")),
+        "alunos_especiais": [
+            {"id": a["id"], "nome": a["nome"]}
+            for a in (d.get("alunos_especiais") or [])[:5]
+        ],
+    }
+
+
+def _montar_quadro_de_vagas(mun_d: dict, vagas: list[dict]) -> dict:
+    mun_d = dict(mun_d)
+    mun_d["dias"] = dias_do_municipio(mun_d)
+    datas = sorted(set(mun_d["dias"]) | {r.get("data") for r in vagas if r.get("data")})
+    if any(not r.get("data") for r in vagas):
+        datas.append("")
+    linhas_map: dict[tuple, dict] = {}
+    livres = choques = avisos = finalizadas = 0
+    for d in vagas:
+        if d.get("vago"):
+            livres += 1
+        if d.get("tem_choque"):
+            choques += 1
+        if d.get("tem_aviso"):
+            avisos += 1
+        if d.get("status") == "FINALIZADA":
+            finalizadas += 1
+        chave = (d["escola_id"], d["turno"])
+        if chave not in linhas_map:
+            linhas_map[chave] = {
+                "escola_id": d["escola_id"],
+                "escola": d["escola_nome"],
+                "codigo": d["escola_codigo"],
+                "rede": d["rede"],
+                "rural": bool(d["rural"]),
+                "turno": d["turno"],
+                "celulas": {dt: [] for dt in datas},
+            }
+        chave_data = d.get("data") or ""
+        linhas_map[chave]["celulas"].setdefault(chave_data, [])
+        linhas_map[chave]["celulas"][chave_data].append(_celula_quadro(d))
+    return {
+        "municipio": mun_d,
+        "datas": datas,
+        "datas_fmt": ["Sem data" if not d else fmt_data(d) for d in datas],
+        "linhas": list(linhas_map.values()),
+        "vagas": len(vagas),
+        "livres": livres,
+        "choques": choques,
+        "avisos": avisos,
+        "finalizadas": finalizadas,
+    }
+
+
 @app.get("/api/quadro")
-def quadro(municipio_id: int):
+def quadro(municipio_id: int | None = None):
     with get_db() as conn:
-        mun = conn.execute(
+        if municipio_id:
+            mun = conn.execute(
+                """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
+                   FROM municipios m
+                   LEFT JOIN viagens v ON v.municipio_id = m.id
+                   WHERE m.id = ?""",
+                (municipio_id,),
+            ).fetchone()
+            if not mun:
+                raise HTTPException(404, "Município não encontrado.")
+            vagas = conn.execute(
+                _SQL_VAGAS_QUADRO + " WHERE e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
+                (municipio_id,),
+            ).fetchall()
+            datas_vagas = {r["data"] for r in vagas if r["data"]}
+            agenda = _agenda_ocupadas(conn, datas_vagas or None)
+            enriquecidas = enriquecer_vagas(conn, [dict(raw) for raw in vagas], agenda)
+            return {**_montar_quadro_de_vagas(row_to_dict(mun), enriquecidas), "todos": False}
+
+        municipios = conn.execute(
             """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
                FROM municipios m
                LEFT JOIN viagens v ON v.municipio_id = m.id
-               WHERE m.id = ?""",
-            (municipio_id,),
-        ).fetchone()
-        if not mun:
-            raise HTTPException(404, "Município não encontrado.")
-
-        vagas = conn.execute(
-            """SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
-                      e.rede, e.rural, e.municipio_id,
-                      a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome
-               FROM vagas v
-               JOIN escolas e ON e.id = v.escola_id
-               LEFT JOIN aplicadores a ON a.id = v.aplicador_id
-               WHERE e.municipio_id = ?
-               ORDER BY e.nome, v.turno, v.data, v.serie""",
-            (municipio_id,),
+               ORDER BY m.nome"""
         ).fetchall()
-
-        mun_d = row_to_dict(mun)
-        mun_d["dias"] = dias_do_municipio(mun_d)
-        datas = sorted(
-            set(mun_d["dias"]) | {r["data"] for r in vagas if r["data"]}
-        )
-        if any(not r["data"] for r in vagas):
-            datas.append("")
-        linhas_map: dict[tuple, dict] = {}
-        livres = 0
-        choques = 0
-        avisos = 0
-        finalizadas = 0
-
+        vagas = conn.execute(
+            _SQL_VAGAS_QUADRO + " ORDER BY e.municipio_id, e.nome, v.turno, v.data, v.serie"
+        ).fetchall()
         datas_vagas = {r["data"] for r in vagas if r["data"]}
         agenda = _agenda_ocupadas(conn, datas_vagas or None)
-        for d in enriquecer_vagas(conn, [dict(raw) for raw in vagas], agenda):
-            if d["vago"]:
-                livres += 1
-            if d["tem_choque"]:
-                choques += 1
-            if d["tem_aviso"]:
-                avisos += 1
-            if d["status"] == "FINALIZADA":
-                finalizadas += 1
-            chave = (d["escola_id"], d["turno"])
-            if chave not in linhas_map:
-                linhas_map[chave] = {
-                    "escola_id": d["escola_id"],
-                    "escola": d["escola_nome"],
-                    "codigo": d["escola_codigo"],
-                    "rede": d["rede"],
-                    "rural": bool(d["rural"]),
-                    "turno": d["turno"],
-                    "celulas": {dt: [] for dt in datas},
-                }
-            chave_data = d["data"] or ""
-            linhas_map[chave]["celulas"].setdefault(chave_data, [])
-            linhas_map[chave]["celulas"][chave_data].append(
-                {
-                    "id": d["id"],
-                    "serie": d["serie"],
-                    "ordem": d["ordem"],
-                    "turno": d["turno"],
-                    "data": d["data"],
-                    "turma": d.get("turma"),
-                    "n_alunos": d.get("n_alunos"),
-                    "status": d["status"],
-                    "vago": d["vago"],
-                    "tem_choque": d["tem_choque"],
-                    "tem_aviso": d["tem_aviso"],
-                    "aplicador": None
-                    if d["vago"]
-                    else {
-                        "id": d["apl_id"],
-                        "codigo": d["apl_codigo"],
-                        "nome": d["apl_nome"] or d["apl_codigo"],
-                    },
-                    "n_extras": d.get("n_extras") or 0,
-                    "extras_preenchidos": d.get("extras_preenchidos") or 0,
-                    "extras_faltam": d.get("extras_faltam") or 0,
-                    "extras_tem_choque": bool(d.get("extras_tem_choque")),
-                    "alunos_especiais": [
-                        {"id": a["id"], "nome": a["nome"]}
-                        for a in (d.get("alunos_especiais") or [])[:5]
-                    ],
-                }
-            )
+        enriquecidas = enriquecer_vagas(conn, [dict(raw) for raw in vagas], agenda)
+        por_mun: dict[int, list[dict]] = {}
+        for d in enriquecidas:
+            por_mun.setdefault(int(d["municipio_id"]), []).append(d)
+        quadros = []
+        totais = {"vagas": 0, "livres": 0, "choques": 0, "avisos": 0, "finalizadas": 0}
+        for mun in municipios:
+            mun_d = row_to_dict(mun)
+            bloco = _montar_quadro_de_vagas(mun_d, por_mun.get(int(mun_d["id"]), []))
+            if not bloco["vagas"]:
+                continue
+            quadros.append(bloco)
+            for chave in totais:
+                totais[chave] += bloco[chave]
+        return {"todos": True, "quadros": quadros, **totais}
 
-        return {
-            "municipio": mun_d,
-            "datas": datas,
-            "datas_fmt": ["Sem data" if not d else fmt_data(d) for d in datas],
-            "linhas": list(linhas_map.values()),
-            "vagas": len(vagas),
-            "livres": livres,
-            "choques": choques,
-            "avisos": avisos,
-            "finalizadas": finalizadas,
-        }
+
+@app.get("/api/quadro/pdf")
+def quadro_pdf(
+    municipio_id: int | None = None,
+    rede: str = "TODAS",
+    so_vagos: bool = False,
+    status: str = "TODAS",
+):
+    dados = quadro(municipio_id)
+    if dados.get("todos"):
+        nome_mun = "Todos"
+    else:
+        nome_mun = ((dados.get("municipio") or {}).get("nome") or "Município")
+    bio = gerar_pdf_quadro(
+        dados,
+        municipio_nome=nome_mun,
+        rede=rede or "TODAS",
+        so_vagos=so_vagos,
+        status=status or "TODAS",
+    )
+    return StreamingResponse(
+        bio,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nome_arquivo_pdf(nome_mun)}"'},
+    )
+
+
+@app.get("/api/quadro/xlsx")
+def quadro_xlsx(
+    municipio_id: int | None = None,
+    rede: str = "TODAS",
+    so_vagos: bool = False,
+    status: str = "TODAS",
+):
+    dados = quadro(municipio_id)
+    if dados.get("todos"):
+        nome_mun = "Todos"
+    else:
+        nome_mun = ((dados.get("municipio") or {}).get("nome") or "Município")
+    bio = gerar_xlsx_quadro(
+        dados,
+        municipio_nome=nome_mun,
+        rede=rede or "TODAS",
+        so_vagos=so_vagos,
+        status=status or "TODAS",
+    )
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nome_arquivo_xlsx(nome_mun)}"'},
+    )
 
 
 @app.get("/api/vagas/{vaga_id}/candidatos")
@@ -1110,13 +1199,31 @@ def api_diarias_ajuste(body: DiariaAjusteBody):
 
 
 @app.get("/api/diarias/export")
-def api_diarias_export():
+def api_diarias_export(municipio_id: int | None = None, q: str | None = None):
     with get_db() as conn:
-        bio, nome = exportar_xlsx(conn)
+        folha = montar_folha(conn)
+    bio = gerar_xlsx_diarias(folha, municipio_id=municipio_id, q=q)
     return StreamingResponse(
         bio,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+        headers={"Content-Disposition": 'attachment; filename="diarias-saeto.xlsx"'},
+    )
+
+
+@app.get("/api/diarias/xlsx")
+def api_diarias_xlsx(municipio_id: int | None = None, q: str | None = None):
+    return api_diarias_export(municipio_id=municipio_id, q=q)
+
+
+@app.get("/api/diarias/pdf")
+def api_diarias_pdf(municipio_id: int | None = None, q: str | None = None):
+    with get_db() as conn:
+        folha = montar_folha(conn)
+    bio = gerar_pdf_diarias(folha, municipio_id=municipio_id, q=q)
+    return StreamingResponse(
+        bio,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="diarias-saeto.pdf"'},
     )
 
 
