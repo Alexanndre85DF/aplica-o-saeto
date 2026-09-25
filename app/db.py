@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS vaga_extras (
     vaga_id INTEGER NOT NULL REFERENCES vagas(id) ON DELETE CASCADE,
     aplicador_id INTEGER NOT NULL REFERENCES aplicadores(id) ON DELETE CASCADE,
     aluno_id INTEGER REFERENCES alunos_especiais(id) ON DELETE SET NULL,
-    UNIQUE (vaga_id, aplicador_id)
+    UNIQUE (vaga_id, aplicador_id, aluno_id)
 );
 
 CREATE TABLE IF NOT EXISTS sessoes_acesso (
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS vaga_extras (
     vaga_id BIGINT NOT NULL REFERENCES vagas(id) ON DELETE CASCADE,
     aplicador_id BIGINT NOT NULL REFERENCES aplicadores(id) ON DELETE CASCADE,
     aluno_id BIGINT REFERENCES alunos_especiais(id) ON DELETE SET NULL,
-    UNIQUE (vaga_id, aplicador_id)
+    UNIQUE (vaga_id, aplicador_id, aluno_id)
 );
 CREATE INDEX IF NOT EXISTS idx_vaga_extras_vaga ON vaga_extras(vaga_id);
 CREATE INDEX IF NOT EXISTS idx_vaga_extras_aplicador ON vaga_extras(aplicador_id);
@@ -690,7 +690,7 @@ def _ensure_colunas_postgres(conn) -> None:
             vaga_id BIGINT NOT NULL REFERENCES vagas(id) ON DELETE CASCADE,
             aplicador_id BIGINT NOT NULL REFERENCES aplicadores(id) ON DELETE CASCADE,
             aluno_id BIGINT REFERENCES alunos_especiais(id) ON DELETE SET NULL,
-            UNIQUE (vaga_id, aplicador_id)
+            UNIQUE (vaga_id, aplicador_id, aluno_id)
         )""",
         "ALTER TABLE vaga_extras ADD COLUMN IF NOT EXISTS aluno_id BIGINT",
         "CREATE INDEX IF NOT EXISTS idx_vaga_extras_vaga ON vaga_extras(vaga_id)",
@@ -714,7 +714,94 @@ def _ensure_colunas_postgres(conn) -> None:
             conn.execute(sql)
         except Exception:
             pass
+    _liberar_extra_multi_aluno_postgres(conn)
     sincronizar_sequencias(conn)
+
+
+def _liberar_extra_multi_aluno_postgres(conn) -> None:
+    try:
+        conn.execute(
+            "ALTER TABLE vaga_extras DROP CONSTRAINT IF EXISTS vaga_extras_vaga_id_aplicador_id_key"
+        )
+    except Exception:
+        pass
+    try:
+        rows = conn.execute(
+            """SELECT c.conname
+               FROM pg_constraint c
+               JOIN pg_class t ON t.oid = c.conrelid
+               WHERE t.relname = 'vaga_extras' AND c.contype = 'u'"""
+        ).fetchall()
+        for row in rows:
+            nome = row[0] if not isinstance(row, dict) else row.get("conname")
+            if not nome or nome == "vaga_extras_vaga_id_aplicador_id_aluno_id_key":
+                continue
+            cols = conn.execute(
+                """SELECT a.attname
+                   FROM pg_constraint c
+                   JOIN pg_class t ON t.oid = c.conrelid
+                   JOIN unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) ON true
+                   JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                   WHERE t.relname = 'vaga_extras' AND c.conname = ?
+                   ORDER BY k.ord""",
+                (nome,),
+            ).fetchall()
+            nomes = [c[0] if not isinstance(c, dict) else c.get("attname") for c in cols]
+            if nomes == ["vaga_id", "aplicador_id"]:
+                conn.execute(f'ALTER TABLE vaga_extras DROP CONSTRAINT IF EXISTS "{nome}"')
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_vaga_extras_vaga_apl_aluno
+               ON vaga_extras (vaga_id, aplicador_id, aluno_id)"""
+        )
+    except Exception:
+        pass
+
+
+def _liberar_extra_multi_aluno_sqlite(conn) -> None:
+    precisa = False
+    try:
+        for idx in conn.execute("PRAGMA index_list('vaga_extras')"):
+            if not idx[2]:
+                continue
+            cols = [r[2] for r in conn.execute(f'PRAGMA index_info("{idx[1]}")')]
+            if cols == ["vaga_id", "aplicador_id"]:
+                precisa = True
+                break
+    except Exception:
+        return
+    if not precisa:
+        return
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("ALTER TABLE vaga_extras RENAME TO vaga_extras_old")
+        conn.execute(
+            """CREATE TABLE vaga_extras (
+                id INTEGER PRIMARY KEY,
+                vaga_id INTEGER NOT NULL REFERENCES vagas(id) ON DELETE CASCADE,
+                aplicador_id INTEGER NOT NULL REFERENCES aplicadores(id) ON DELETE CASCADE,
+                aluno_id INTEGER REFERENCES alunos_especiais(id) ON DELETE SET NULL,
+                UNIQUE (vaga_id, aplicador_id, aluno_id)
+            )"""
+        )
+        old_cols = {row[1] for row in conn.execute("PRAGMA table_info(vaga_extras_old)")}
+        if "aluno_id" in old_cols:
+            conn.execute(
+                """INSERT INTO vaga_extras (id, vaga_id, aplicador_id, aluno_id)
+                   SELECT id, vaga_id, aplicador_id, aluno_id FROM vaga_extras_old"""
+            )
+        else:
+            conn.execute(
+                """INSERT INTO vaga_extras (id, vaga_id, aplicador_id)
+                   SELECT id, vaga_id, aplicador_id FROM vaga_extras_old"""
+            )
+        conn.execute("DROP TABLE vaga_extras_old")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vaga_extras_vaga ON vaga_extras(vaga_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vaga_extras_aplicador ON vaga_extras(aplicador_id)")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def sincronizar_sequencias(conn) -> None:
@@ -786,7 +873,8 @@ def ensure_colunas(conn) -> None:
             id INTEGER PRIMARY KEY,
             vaga_id INTEGER NOT NULL REFERENCES vagas(id) ON DELETE CASCADE,
             aplicador_id INTEGER NOT NULL REFERENCES aplicadores(id) ON DELETE CASCADE,
-            UNIQUE (vaga_id, aplicador_id)
+            aluno_id INTEGER REFERENCES alunos_especiais(id) ON DELETE SET NULL,
+            UNIQUE (vaga_id, aplicador_id, aluno_id)
         )"""
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vaga_extras_vaga ON vaga_extras(vaga_id)")
@@ -811,6 +899,7 @@ def ensure_colunas(conn) -> None:
     xcols = {row[1] for row in conn.execute("PRAGMA table_info(vaga_extras)")}
     if "aluno_id" not in xcols:
         conn.execute("ALTER TABLE vaga_extras ADD COLUMN aluno_id INTEGER")
+    _liberar_extra_multi_aluno_sqlite(conn)
     try:
         vicols = {row[1] for row in conn.execute("PRAGMA table_info(viagens)")}
         if "dias_aplicacao" not in vicols:

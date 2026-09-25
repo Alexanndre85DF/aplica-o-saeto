@@ -296,7 +296,7 @@ async function abrirVaga(vagaId) {
     <section class="bloco-extras">
       <h3>2. Extra por estudante</h3>
       ${temAplicador ? `
-      ${alunosEsp.length ? `<p class="escola-meta">Marque o aluno e busque quem acompanha. ${extras.length} de ${nEx} com extra.</p>
+      ${alunosEsp.length ? `<p class="escola-meta">Marque o aluno e busque quem acompanha. O mesmo extra pode ficar com mais de um estudante. ${extras.length} de ${nEx} com extra.</p>
       ${listaAlunos}` : `<p class="aviso-diaria">Nenhum aluno especial em ${escHtml(v.turma || v.serie)}. Extra só com nome da lista.</p>`}
       <form id="form-aluno-esp" class="form-grid" style="margin-top:8px">
         <label class="campo">Nome do estudante
@@ -309,7 +309,7 @@ async function abrirVaga(vagaId) {
       </form>
       ${listaExtras}
       ${alunosEsp.length ? `<input type="text" id="busca-extra" placeholder="Digite o nome de quem vai ser extra" autocomplete="off" />
-      <p id="dica-extra" class="escola-meta">Marque o estudante acima e digite pelo menos 2 letras do extra.</p>
+      <p id="dica-extra" class="escola-meta">Marque o estudante sem extra e digite pelo menos 2 letras. O mesmo aplicador pode acompanhar mais de um aluno desta turma.</p>
       <div id="lista-extras">${extraCands}</div>` : ""}
       ` : `<p class="escola-meta">Escolha o aplicador em cima. Depois o extra entra no nome do estudante.</p>`}
     </section>
@@ -444,10 +444,15 @@ async function abrirVaga(vagaId) {
   const ligarExtras = () => {
     $$("#lista-extras .cand").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        if (btn.dataset.ok === "1" && (v.extras || []).some((e) => String(e.id) === String(btn.dataset.id))) {
+        const alunoId = alunoEspSelecionado();
+        if (
+          alunoId
+          && (v.extras || []).some(
+            (e) => String(e.id) === String(btn.dataset.id) && Number(e.aluno_id) === alunoId
+          )
+        ) {
           return;
         }
-        const alunoId = alunoEspSelecionado();
         if (alunosEsp.length && !alunoId) {
           alert("Marque o estudante que este extra vai acompanhar.");
           return;

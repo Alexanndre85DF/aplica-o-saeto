@@ -512,30 +512,40 @@ def _cupos_extra(conn, vaga: dict) -> int:
 
 
 def _gravar_extra(conn, vaga_id: int, aplicador_id: int, aluno_id: int | None) -> None:
-    atual = conn.execute(
-        "SELECT id, aluno_id FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
-        (vaga_id, aplicador_id),
-    ).fetchone()
-    if atual:
-        if aluno_id and not atual["aluno_id"]:
-            try:
-                conn.execute(
-                    "UPDATE vaga_extras SET aluno_id = ? WHERE id = ?",
-                    (aluno_id, atual["id"]),
-                )
-            except Exception:
-                pass
-        return
-    try:
+    if aluno_id:
+        ja = conn.execute(
+            """SELECT id FROM vaga_extras
+               WHERE vaga_id = ? AND aplicador_id = ? AND aluno_id = ?""",
+            (vaga_id, aplicador_id, aluno_id),
+        ).fetchone()
+        if ja:
+            return
+        solto = conn.execute(
+            """SELECT id FROM vaga_extras
+               WHERE vaga_id = ? AND aplicador_id = ? AND aluno_id IS NULL""",
+            (vaga_id, aplicador_id),
+        ).fetchone()
+        if solto:
+            conn.execute(
+                "UPDATE vaga_extras SET aluno_id = ? WHERE id = ?",
+                (aluno_id, solto["id"]),
+            )
+            return
         conn.execute(
             "INSERT INTO vaga_extras(vaga_id, aplicador_id, aluno_id) VALUES (?, ?, ?)",
             (vaga_id, aplicador_id, aluno_id),
         )
-    except Exception:
-        conn.execute(
-            "INSERT INTO vaga_extras(vaga_id, aplicador_id) VALUES (?, ?)",
-            (vaga_id, aplicador_id),
-        )
+        return
+    atual = conn.execute(
+        "SELECT id FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+        (vaga_id, aplicador_id),
+    ).fetchone()
+    if atual:
+        return
+    conn.execute(
+        "INSERT INTO vaga_extras(vaga_id, aplicador_id) VALUES (?, ?)",
+        (vaga_id, aplicador_id),
+    )
 
 
 def alocar_extra(
@@ -576,10 +586,14 @@ def alocar_extra(
             "erro": "Esta turma não tem aluno especial na lista. Inclua o nome ou importe o relatório.",
         }
     atuais = extras_da_vaga(conn, vaga_id)
-    ja = next((x for x in atuais if x["id"] == aplicador_id), None)
-    if ja and (not aluno_id or ja.get("aluno_id") == aluno_id):
+    ja = next(
+        (x for x in atuais if x["id"] == aplicador_id and x.get("aluno_id") == aluno_id),
+        None,
+    )
+    if ja:
         return {"ok": True, "extras": atuais, "n_extras": n}
-    if not ja and len(atuais) >= n:
+    cobertos = {x.get("aluno_id") for x in atuais if x.get("aluno_id")}
+    if aluno_id not in cobertos and len(cobertos) >= n:
         return {"ok": False, "erro": f"Esta turma já tem os {n} extra(s)."}
     agenda = _agenda_ocupadas(conn)
     checagem = _checar_extra(vaga, aplicador_id, agenda)
@@ -610,10 +624,17 @@ def alocar_extra(
 
 
 def remover_extra(conn, vaga_id: int, aplicador_id: int, aluno_id: int | None = None) -> dict:
-    atual = conn.execute(
-        "SELECT * FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
-        (vaga_id, aplicador_id),
-    ).fetchone()
+    if aluno_id:
+        atual = conn.execute(
+            """SELECT * FROM vaga_extras
+               WHERE vaga_id = ? AND aplicador_id = ? AND aluno_id = ?""",
+            (vaga_id, aplicador_id, aluno_id),
+        ).fetchone()
+    else:
+        atual = conn.execute(
+            "SELECT * FROM vaga_extras WHERE vaga_id = ? AND aplicador_id = ?",
+            (vaga_id, aplicador_id),
+        ).fetchone()
     if not atual:
         return {"ok": False, "erro": "Este extra não está nesta turma."}
     alvo_aluno = aluno_id or (atual["aluno_id"] if "aluno_id" in atual.keys() else None)
@@ -675,7 +696,8 @@ def candidatos_para_extra(
     if agenda is None:
         agenda = _agenda_ocupadas(conn)
     atuais = extras_da_vaga(conn, vaga_id)
-    cheio = len(atuais) >= n > 0
+    cobertos = {x.get("aluno_id") for x in atuais if x.get("aluno_id")}
+    cheio = len(cobertos) >= n > 0
     aplicadores = conn.execute(
         "SELECT * FROM aplicadores WHERE ativo = 1 ORDER BY codigo"
     ).fetchall()

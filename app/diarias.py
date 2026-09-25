@@ -127,7 +127,7 @@ def _ocupacoes(conn) -> list[dict]:
     extras = []
     try:
         extras = conn.execute(
-            """SELECT x.aplicador_id, e.municipio_id, m.nome AS municipio,
+            """SELECT DISTINCT x.aplicador_id, e.municipio_id, m.nome AS municipio,
                       v.data, 'extra' AS papel
                FROM vaga_extras x
                JOIN vagas v ON v.id = x.vaga_id
