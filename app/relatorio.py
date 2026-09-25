@@ -11,20 +11,50 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from .regras import fmt_data
 
 COLS = [
-    (32, "Município"),
-    (48, "Escola"),
-    (20, "Rede"),
-    (20, "Turno"),
+    (48, "Município"),
+    (64, "Escola"),
+    (18, "Rede"),
+    (22, "Turno"),
     (22, "Data"),
-    (40, "Série / turma"),
-    (50, "Aplicador"),
-    (16, "Extra"),
-    (22, "Situação"),
+    (34, "Série / turma"),
+    (42, "Aplicador"),
+    (14, "Extra"),
+    (13, "Situação"),
 ]
 
 
+_TROCAS = str.maketrans(
+    {
+        "\u2014": "-",
+        "\u2013": "-",
+        "\u2212": "-",
+        "\u2022": "-",
+        "\u2026": ".",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2018": "'",
+        "\u2019": "'",
+    }
+)
+
+
 def _txt(valor) -> str:
-    return str(valor or "").encode("latin-1", "replace").decode("latin-1")
+    texto = str(valor or "").translate(_TROCAS)
+    return texto.encode("latin-1", "replace").decode("latin-1")
+
+
+def _caber(pdf: FPDF, texto, largura: float) -> str:
+    texto = _txt(texto)
+    limite = max(6, largura - 1.6)
+    if pdf.get_string_width(texto) <= limite:
+        return texto
+    while texto and pdf.get_string_width(texto + "...") > limite:
+        texto = texto[:-1]
+    return f"{texto}..." if texto else ""
+
+
+def _celula(pdf: FPDF, largura: float, altura: float, texto, fill: bool = False, align: str = "L") -> None:
+    pdf.cell(largura, altura, _caber(pdf, texto, largura), border=1, fill=fill, align=align)
 
 
 def _situacao(slot: dict) -> str:
@@ -74,9 +104,9 @@ def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False,
                             "turno": linha.get("turno") or "",
                             "data": rotulo.get(data) or (fmt_data(data) if data else "Sem data"),
                             "data_ord": data or "9999-99-99",
-                            "serie": f"{serie} · {turma}".strip(" ·") if turma else serie,
+                            "serie": f"{serie} - {turma}".strip(" -") if turma else serie,
                             "aplicador": apl.get("nome") or apl.get("codigo") or "Sem aplicador",
-                            "extra": f"{slot.get('extras_preenchidos') or 0}/{n_ex}" if n_ex else "—",
+                            "extra": f"{slot.get('extras_preenchidos') or 0}/{n_ex}" if n_ex else "-",
                             "situacao": _situacao(slot),
                         }
                     )
@@ -97,22 +127,23 @@ def _rotulo_filtros(municipio_nome: str, rede: str, so_vagos: bool, status: str,
         }.get(status or "TODAS", status)
         partes.append(f"Situação: {sit}")
     partes.append(f"{total} aplicação(ões)")
-    return "  ·  ".join(partes)
+    return "  -  ".join(partes)
 
 
 class _PdfQuadro(FPDF):
     def __init__(self, filtros: str):
         super().__init__(orientation="L", unit="mm", format="A4")
         self.filtros = filtros
+        self.set_margins(10, 12, 10)
         self.set_auto_page_break(auto=True, margin=14)
 
     def header(self):
         self.set_font("Helvetica", "B", 12)
-        self.cell(0, 6, _txt("SAETO SRE Gurupi — Quadro de aplicação"), ln=True)
+        self.cell(0, 6, _txt("SAETO SRE Gurupi - Quadro de aplicação"), ln=True)
         self.set_font("Helvetica", "", 8)
         self.cell(0, 5, _txt(self.filtros), ln=True)
         self.ln(1)
-        self.set_font("Helvetica", "B", 7)
+        self.set_font("Helvetica", "B", 8)
         self.set_fill_color(0, 0, 128)
         self.set_text_color(255, 255, 255)
         for largura, titulo in COLS:
@@ -124,7 +155,7 @@ class _PdfQuadro(FPDF):
         self.set_y(-10)
         self.set_font("Helvetica", "", 8)
         agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-        self.cell(0, 8, _txt(f"Emitido em {agora}  ·  Página {self.page_no()}/{{nb}}"), align="C")
+        self.cell(0, 8, _txt(f"Emitido em {agora}  -  Página {self.page_no()}/{{nb}}"), align="C")
 
 
 def gerar_pdf_quadro(
@@ -139,7 +170,7 @@ def gerar_pdf_quadro(
     pdf = _PdfQuadro(_rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas)))
     pdf.alias_nb_pages()
     pdf.add_page()
-    pdf.set_font("Helvetica", "", 7)
+    pdf.set_font("Helvetica", "", 8)
     if not linhas:
         pdf.cell(0, 8, _txt("Nenhuma aplicação neste filtro."), ln=True)
     zebra = False
@@ -157,7 +188,7 @@ def gerar_pdf_quadro(
             row["situacao"],
         ]
         for largura, valor in zip((c[0] for c in COLS), valores):
-            pdf.cell(largura, 5.5, _txt(valor)[:46], border=1, fill=True)
+            _celula(pdf, largura, 6, valor, fill=True)
         pdf.ln()
         zebra = not zebra
     bruto = pdf.output()
@@ -249,12 +280,12 @@ def gerar_xlsx_quadro(
 
 
 COLS_DIARIA = [
-    (26, "Data"),
-    (40, "Município"),
-    (58, "Servidor"),
-    (24, "Matrícula"),
-    (18, "OS"),
-    (24, "Valor"),
+    (32, "Data"),
+    (78, "Município"),
+    (88, "Servidor"),
+    (30, "Matrícula"),
+    (22, "OS"),
+    (27, "Valor"),
 ]
 
 
@@ -291,17 +322,18 @@ def grupos_diaria_filtrados(folha: dict, municipio_id: int | None = None, q: str
 
 class _PdfDiaria(FPDF):
     def __init__(self, filtros: str):
-        super().__init__(orientation="P", unit="mm", format="A4")
+        super().__init__(orientation="L", unit="mm", format="A4")
         self.filtros = filtros
+        self.set_margins(10, 12, 10)
         self.set_auto_page_break(auto=True, margin=14)
 
     def header(self):
         self.set_font("Helvetica", "B", 12)
-        self.cell(0, 6, _txt("SAETO SRE Gurupi — Folha de diárias"), ln=True)
+        self.cell(0, 6, _txt("SAETO SRE Gurupi - Folha de diárias"), ln=True)
         self.set_font("Helvetica", "", 8)
         self.cell(0, 5, _txt(self.filtros), ln=True)
         self.ln(1)
-        self.set_font("Helvetica", "B", 7)
+        self.set_font("Helvetica", "B", 8)
         self.set_fill_color(0, 0, 128)
         self.set_text_color(255, 255, 255)
         for largura, titulo in COLS_DIARIA:
@@ -313,7 +345,7 @@ class _PdfDiaria(FPDF):
         self.set_y(-10)
         self.set_font("Helvetica", "", 8)
         agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-        self.cell(0, 8, _txt(f"Emitido em {agora}  ·  Página {self.page_no()}/{{nb}}"), align="C")
+        self.cell(0, 8, _txt(f"Emitido em {agora}  -  Página {self.page_no()}/{{nb}}"), align="C")
 
 
 def _rotulo_diarias(folha: dict, grupos: list[dict], municipio_id: int | None, q: str | None) -> str:
@@ -336,7 +368,7 @@ def _rotulo_diarias(folha: dict, grupos: list[dict], municipio_id: int | None, q
         partes.append(f"Busca: {(q or '').strip()}")
     partes.append(f"{len(pessoas)} pessoa(s)")
     partes.append(f"Total: {fmt_moeda(total)}")
-    return "  ·  ".join(partes)
+    return "  -  ".join(partes)
 
 
 def gerar_pdf_diarias(folha: dict, municipio_id: int | None = None, q: str | None = None) -> BytesIO:
@@ -351,32 +383,34 @@ def gerar_pdf_diarias(folha: dict, municipio_id: int | None = None, q: str | Non
         pdf.set_font("Helvetica", "", 8)
         pdf.cell(0, 8, _txt("Nenhuma diária neste filtro."), ln=True)
     for grupo in grupos:
-        pdf.set_font("Helvetica", "", 7)
+        pdf.set_font("Helvetica", "", 8)
         zebra = False
         for linha in grupo["linhas"]:
             pdf.set_fill_color(236, 236, 245) if zebra else pdf.set_fill_color(255, 255, 255)
             valores = [
-                linha.get("data_fmt") or "—",
+                linha.get("data_fmt") or "-",
                 linha.get("rota") or linha.get("municipio") or "",
                 (linha.get("nome") or "").upper(),
-                linha.get("matricula") or "—",
+                linha.get("matricula") or "-",
                 linha.get("os") or "",
                 linha.get("valor_fmt") or "",
             ]
             for largura, valor in zip((c[0] for c in COLS_DIARIA), valores):
-                pdf.cell(largura, 5.5, _txt(valor)[:46], border=1, fill=True)
+                _celula(pdf, largura, 6, valor, fill=True)
             pdf.ln()
             zebra = not zebra
-        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_font("Helvetica", "B", 8)
         pdf.set_fill_color(255, 242, 204)
-        pdf.cell(148, 6, _txt(f"Total {grupo.get('data_fmt') or ''} · {grupo.get('rota') or ''}"), border=1, fill=True)
-        pdf.cell(42, 6, _txt(fmt_moeda(grupo["total"])), border=1, fill=True, align="R")
+        largura_rotulo = sum(c[0] for c in COLS_DIARIA[:-1])
+        _celula(pdf, largura_rotulo, 6, f"Total {grupo.get('data_fmt') or ''} - {grupo.get('rota') or ''}", fill=True)
+        _celula(pdf, COLS_DIARIA[-1][0], 6, fmt_moeda(grupo["total"]), fill=True, align="R")
         pdf.ln()
     if grupos:
-        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_font("Helvetica", "B", 9)
         pdf.set_fill_color(217, 226, 243)
-        pdf.cell(148, 7, _txt("Total geral"), border=1, fill=True)
-        pdf.cell(42, 7, _txt(fmt_moeda(total)), border=1, fill=True, align="R")
+        largura_rotulo = sum(c[0] for c in COLS_DIARIA[:-1])
+        _celula(pdf, largura_rotulo, 7, "Total geral", fill=True)
+        _celula(pdf, COLS_DIARIA[-1][0], 7, fmt_moeda(total), fill=True, align="R")
         pdf.ln()
     return BytesIO(bytes(pdf.output()))
 
