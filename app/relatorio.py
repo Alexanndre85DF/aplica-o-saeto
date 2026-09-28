@@ -96,6 +96,15 @@ def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False,
                     n_ex = int(slot.get("n_extras") or 0)
                     serie = slot.get("serie") or ""
                     turma = slot.get("turma") or ""
+                    nomes_extra = []
+                    vistos = set()
+                    for extra in slot.get("extras") or []:
+                        nome = (extra.get("nome") or extra.get("codigo") or "").strip()
+                        chave = extra.get("id") or nome.lower()
+                        if not nome or chave in vistos:
+                            continue
+                        vistos.add(chave)
+                        nomes_extra.append(nome)
                     saida.append(
                         {
                             "municipio": mun,
@@ -106,6 +115,7 @@ def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False,
                             "data_ord": data or "9999-99-99",
                             "serie": f"{serie} - {turma}".strip(" -") if turma else serie,
                             "aplicador": apl.get("nome") or apl.get("codigo") or "Sem aplicador",
+                            "aplicador_extra": ", ".join(nomes_extra) if nomes_extra else "-",
                             "extra": f"{slot.get('extras_preenchidos') or 0}/{n_ex}" if n_ex else "-",
                             "situacao": _situacao(slot),
                         }
@@ -220,7 +230,18 @@ def gerar_xlsx_quadro(
     wb = Workbook()
     ws = wb.active
     ws.title = "Quadro"
-    cab = [titulo for _, titulo in COLS]
+    cab = [
+        "Município",
+        "Escola",
+        "Rede",
+        "Turno",
+        "Data",
+        "Série / turma",
+        "Aplicador",
+        "Aplicador extra",
+        "Extra",
+        "Situação",
+    ]
     borda = Border(
         left=Side(style="thin", color="808080"),
         right=Side(style="thin", color="808080"),
@@ -230,10 +251,10 @@ def gerar_xlsx_quadro(
     fundo_cab = PatternFill("solid", fgColor="000080")
     fundo_zebra = PatternFill("solid", fgColor="ECECF5")
     fonte_cab = Font(bold=True, color="FFFFFF")
-    ws.merge_cells("A1:I1")
+    ws.merge_cells("A1:J1")
     ws["A1"] = "SAETO SRE Gurupi — Quadro de aplicação"
     ws["A1"].font = Font(bold=True, size=13)
-    ws.merge_cells("A2:I2")
+    ws.merge_cells("A2:J2")
     ws["A2"] = _rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas))
     ws.append([])
     ws.append(cab)
@@ -252,6 +273,7 @@ def gerar_xlsx_quadro(
                 row["data"],
                 row["serie"],
                 row["aplicador"],
+                row.get("aplicador_extra") or "-",
                 row["extra"],
                 row["situacao"],
             ]
@@ -269,9 +291,10 @@ def gerar_xlsx_quadro(
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 28
     ws.column_dimensions["G"].width = 32
-    ws.column_dimensions["H"].width = 10
-    ws.column_dimensions["I"].width = 12
-    ws.auto_filter.ref = f"A4:I{max(4, ws.max_row)}"
+    ws.column_dimensions["H"].width = 36
+    ws.column_dimensions["I"].width = 10
+    ws.column_dimensions["J"].width = 12
+    ws.auto_filter.ref = f"A4:J{max(4, ws.max_row)}"
     ws.freeze_panes = "A5"
     bio = BytesIO()
     wb.save(bio)

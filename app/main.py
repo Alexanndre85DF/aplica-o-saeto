@@ -905,6 +905,14 @@ def _celula_quadro(d: dict) -> dict:
             {"id": a["id"], "nome": a["nome"]}
             for a in (d.get("alunos_especiais") or [])[:5]
         ],
+        "extras": [
+            {
+                "id": e.get("id"),
+                "nome": e.get("nome") or e.get("codigo"),
+                "codigo": e.get("codigo"),
+            }
+            for e in (d.get("extras") or [])
+        ],
     }
 
 
