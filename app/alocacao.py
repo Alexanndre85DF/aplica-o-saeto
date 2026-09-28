@@ -60,7 +60,7 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
     problemas = []
     mun_atual = vaga.get("municipio_id")
     mesma_data = bool(vaga.get("data"))
-    no_mesmo_dia = 0
+    turnos_no_dia = {vaga.get("turno")} if mesma_data and vaga.get("turno") else set()
     for o in outros:
         if not mesma_data or not o["data"]:
             if o["municipio_id"] != mun_atual:
@@ -82,7 +82,23 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
                     }
                 )
             continue
-        no_mesmo_dia += 1
+        if o.get("turno"):
+            turnos_no_dia.add(o["turno"])
+        extra_outro_turno = o.get("papel") == "extra" and not turnos_sobrepoem(
+            o["turno"], vaga["turno"]
+        )
+        if extra_outro_turno:
+            if o["escola_id"] != vaga.get("escola_id"):
+                problemas.append(
+                    {
+                        "tipo": "dois_turnos",
+                        "grau": "aviso",
+                        "mensagem": (
+                            f"Extra no {o['turno'].title()} em {o['escola_nome']} no mesmo dia."
+                        ),
+                    }
+                )
+            continue
         if turnos_sobrepoem(o["turno"], vaga["turno"]):
             if o["escola_id"] != vaga["escola_id"]:
                 msg = (
@@ -122,12 +138,12 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
                     ),
                 }
             )
-    if mesma_data and no_mesmo_dia >= 3:
+    if mesma_data and len(turnos_no_dia) >= 3:
         problemas.append(
             {
                 "tipo": "limite_dia",
                 "grau": "choque",
-                "mensagem": "Já tem 3 aplicações neste dia (manhã, tarde e noite). Integral conta como um turno.",
+                "mensagem": "Já tem 3 turnos neste dia (manhã, tarde e noite). Extra de vários alunos no mesmo turno conta uma vez. Integral conta como um turno.",
             }
         )
     return problemas
@@ -310,6 +326,41 @@ def _ocupacao_extra(row) -> dict:
     return d
 
 
+def _limpar_extra_copiado_outro_turno(conn) -> None:
+    """Extra marcado de manhã não pode ficar copiado na tarde da mesma turma (e vice-versa)."""
+    try:
+        conn.execute(
+            """
+            DELETE FROM vaga_extras
+            WHERE id IN (
+                SELECT x.id
+                FROM vaga_extras x
+                JOIN vagas vx ON vx.id = x.vaga_id
+                WHERE x.aluno_id IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM vaga_extras y
+                      JOIN vagas vy ON vy.id = y.vaga_id
+                      WHERE y.aplicador_id = x.aplicador_id
+                        AND y.aluno_id = x.aluno_id
+                        AND vy.turno != vx.turno
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM vagas t
+                      WHERE t.aplicador_id = x.aplicador_id
+                        AND t.turno = vx.turno
+                        AND t.id != vx.id
+                        AND t.data IS NOT NULL
+                        AND vx.data IS NOT NULL
+                        AND t.data = vx.data
+                  )
+            )
+            """
+        )
+    except Exception:
+        pass
+
+
 def _filtro_agenda(datas: set | None) -> tuple[str, tuple]:
     validas = [d for d in (datas or set()) if d]
     if not validas:
@@ -319,6 +370,7 @@ def _filtro_agenda(datas: set | None) -> tuple[str, tuple]:
 
 
 def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
+    _limpar_extra_copiado_outro_turno(conn)
     por: dict[int, list[dict]] = defaultdict(list)
     extra_data, params = _filtro_agenda(datas)
     for r in conn.execute(
@@ -347,8 +399,13 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
         )
     except Exception:
         extras = []
+    vistos_extra: set[tuple[int, int]] = set()
     for r in extras:
         d = _ocupacao_extra(r)
+        chave = (d["aplicador_id"], d["vaga_id"])
+        if chave in vistos_extra:
+            continue
+        vistos_extra.add(chave)
         por[d["aplicador_id"]].append(d)
     return por
 
@@ -607,7 +664,7 @@ def alocar_extra(
     if aluno:
         from .especiais import _vagas_do_aluno
 
-        alvos = [v["id"] for v in _vagas_do_aluno(conn, aluno)] or [vaga_id]
+        alvos = [v["id"] for v in _vagas_do_aluno(conn, aluno, turno=vaga.get("turno"))] or [vaga_id]
         for vid in alvos:
             conn.execute(
                 "DELETE FROM vaga_extras WHERE vaga_id = ? AND aluno_id = ?",
@@ -645,7 +702,7 @@ def remover_extra(conn, vaga_id: int, aplicador_id: int, aluno_id: int | None = 
         if aluno:
             from .especiais import _vagas_do_aluno
 
-            ids = [v["id"] for v in _vagas_do_aluno(conn, dict(aluno))] or [vaga_id]
+            ids = [v["id"] for v in _vagas_do_aluno(conn, dict(aluno), turno=None)] or [vaga_id]
             ph = ",".join("?" * len(ids))
             conn.execute(
                 f"DELETE FROM vaga_extras WHERE aluno_id = ? AND vaga_id IN ({ph})",

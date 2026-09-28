@@ -5,7 +5,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from .homologacao import serie_da_etapa
-from .regras import normalizar_texto, serie_base
+from .regras import normalizar_texto, normalizar_turno, serie_base
 
 
 def eh_planilha_confirmacao(wb) -> bool:
@@ -32,19 +32,22 @@ def _aba_especiais(wb):
     return None
 
 
-def _vagas_do_aluno(conn, aluno) -> list[dict]:
+def _vagas_do_aluno(conn, aluno, turno=None) -> list[dict]:
     rows = conn.execute(
-        """SELECT v.id, v.serie, v.turma, v.escola_id, v.n_extras
+        """SELECT v.id, v.serie, v.turma, v.escola_id, v.n_extras, v.turno
            FROM vagas v
            WHERE v.escola_id = ?""",
         (aluno["escola_id"],),
     ).fetchall()
     turma = normalizar_texto(aluno.get("turma"))
     base = serie_base(aluno.get("serie"))
+    turno_n = normalizar_turno(turno) if turno else None
     return [
         dict(r)
         for r in rows
-        if normalizar_texto(r["turma"]) == turma and serie_base(r["serie"]) == base
+        if normalizar_texto(r["turma"]) == turma
+        and serie_base(r["serie"]) == base
+        and (not turno_n or normalizar_turno(r["turno"]) == turno_n)
     ]
 
 
