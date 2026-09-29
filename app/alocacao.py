@@ -60,7 +60,6 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
     problemas = []
     mun_atual = vaga.get("municipio_id")
     mesma_data = bool(vaga.get("data"))
-    turnos_no_dia = {vaga.get("turno")} if mesma_data and vaga.get("turno") else set()
     for o in outros:
         if not mesma_data or not o["data"]:
             if o["municipio_id"] != mun_atual:
@@ -82,8 +81,6 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
                     }
                 )
             continue
-        if o.get("turno"):
-            turnos_no_dia.add(o["turno"])
         extra_outro_turno = o.get("papel") == "extra" and not turnos_sobrepoem(
             o["turno"], vaga["turno"]
         )
@@ -138,14 +135,6 @@ def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
                     ),
                 }
             )
-    if mesma_data and len(turnos_no_dia) >= 3:
-        problemas.append(
-            {
-                "tipo": "limite_dia",
-                "grau": "choque",
-                "mensagem": "Já tem 3 turnos neste dia (manhã, tarde e noite). Extra de vários alunos no mesmo turno conta uma vez. Integral conta como um turno.",
-            }
-        )
     return problemas
 
 
@@ -259,10 +248,6 @@ def contar_choques(conn) -> int:
                   AND v2.data = v1.data
                   AND (v1.turno = v2.turno OR e1.municipio_id != e2.municipio_id)
             )
-            OR (
-                SELECT COUNT(*) FROM vagas v3
-                WHERE v3.aplicador_id = v1.aplicador_id AND v3.data = v1.data
-            ) >= 4
           )
         """
     ).fetchone()
