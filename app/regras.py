@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import date, datetime, timedelta
 
 REDE_MUNICIPAL = "MUNICIPAL"
@@ -19,6 +20,35 @@ def normalizar_texto(valor) -> str:
         return ""
     texto = str(valor).replace("\xa0", " ")
     return re.sub(r"\s+", " ", texto).strip()
+
+
+def sem_acento(valor) -> str:
+    texto = unicodedata.normalize("NFKD", normalizar_texto(valor))
+    return "".join(c for c in texto if not unicodedata.combining(c))
+
+
+def escola_indigena(nome) -> bool:
+    return "INDIGENA" in sem_acento(nome).upper()
+
+
+def eh_formoso_do_araguaia(nome) -> bool:
+    return sem_acento(nome).upper() == "FORMOSO DO ARAGUAIA"
+
+
+def grupo_formoso(nome, grupo: str | None) -> str | None:
+    """Só Formoso do Araguaia separa cidade e escolas indígenas."""
+    pedido = sem_acento(grupo).lower()
+    if pedido not in {"indigena", "cidade"}:
+        return None
+    if not eh_formoso_do_araguaia(nome):
+        return None
+    return pedido
+
+
+def rotulo_municipio(nome: str, grupo: str | None = None) -> str:
+    if grupo == "indigena":
+        return f"{nome}/INDÍGENA"
+    return nome
 
 
 def normalizar_serie(valor) -> str:

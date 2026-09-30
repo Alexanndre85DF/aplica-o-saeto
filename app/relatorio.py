@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from io import BytesIO
 
@@ -8,7 +9,7 @@ from fpdf import FPDF
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from .regras import fmt_data
+from .regras import fmt_data, rotulo_municipio
 
 COLS = [
     (48, "Município"),
@@ -83,7 +84,10 @@ def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False,
     blocos = payload.get("quadros") if payload.get("todos") else [payload]
     saida = []
     for bloco in blocos or []:
-        mun = ((bloco.get("municipio") or {}).get("nome") or "").strip()
+        mun = rotulo_municipio(
+            ((bloco.get("municipio") or {}).get("nome") or "").strip(),
+            bloco.get("grupo"),
+        )
         datas = bloco.get("datas") or []
         fmt = bloco.get("datas_fmt") or []
         rotulo = {d: f for d, f in zip(datas, fmt)}
@@ -206,7 +210,9 @@ def gerar_pdf_quadro(
 
 
 def nome_arquivo_quadro(municipio_nome: str, ext: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", (municipio_nome or "todos")).strip("-").lower()[:40]
+    base = unicodedata.normalize("NFKD", municipio_nome or "todos")
+    base = "".join(c for c in base if not unicodedata.combining(c))
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-").lower()[:48]
     return f"quadro-{slug or 'todos'}.{ext}"
 
 

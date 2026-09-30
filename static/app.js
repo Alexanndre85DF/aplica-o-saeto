@@ -1,6 +1,7 @@
 const state = {
   view: "resumo",
   municipioId: null,
+  grupoEscola: "",
   filtroRede: "TODAS",
   filtroVago: false,
   filtroStatus: "TODAS",
@@ -104,6 +105,45 @@ function tit(s) {
     .join(" ");
 }
 
+function semAcento(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function ehFormoso(nome) {
+  return semAcento(nome) === "FORMOSO DO ARAGUAIA";
+}
+
+function escolaIndigena(nome) {
+  return semAcento(nome).includes("INDIGENA");
+}
+
+function rotuloMunQuadro(nome, grupo) {
+  const base = tit(nome);
+  return grupo === "indigena" ? `${base}/Indígena` : base;
+}
+
+function valorFiltroMun() {
+  if (!state.municipioId) return "0";
+  if (state.grupoEscola === "indigena") return `${state.municipioId}:indigena`;
+  return String(state.municipioId);
+}
+
+function ajustarGrupoFormoso(municipios) {
+  if (!state.municipioId) {
+    state.grupoEscola = "";
+    return;
+  }
+  const mun = (municipios || []).find((m) => Number(m.id) === Number(state.municipioId));
+  if (!mun || !ehFormoso(mun.nome)) {
+    state.grupoEscola = "";
+    return;
+  }
+  if (state.grupoEscola !== "indigena") state.grupoEscola = "cidade";
+}
+
 function badgeRede(rede) {
   return `<span class="chip ${rede}">${rede.toLowerCase()}</span>`;
 }
@@ -122,7 +162,10 @@ async function atualizarQuadroSeAberto() {
 
 function mostrarView(view, extra = {}) {
   state.view = view;
-  if (extra.municipioId) state.municipioId = extra.municipioId;
+  if (extra.municipioId) {
+    state.municipioId = extra.municipioId;
+    state.grupoEscola = extra.grupo || "";
+  }
   if (view === "cadastro") {
     if (extra.tab) state.cadastroTab = extra.tab;
     else if (state.cadastroTab === "aplicadores") state.cadastroTab = "municipios";
@@ -655,8 +698,8 @@ async function carregarResumo() {
         ${r.por_municipio
           .filter((m) => Number(m.vagas) > 0)
           .map(
-            (m) => `<button class="mun-card" data-id="${m.id}">
-              <b>${tit(m.nome)}</b>
+            (m) => `<button class="mun-card" data-id="${m.id}" data-grupo="${m.grupo || ""}">
+              <b>${rotuloMunQuadro(m.nome, m.grupo)}</b>
               <span>${m.vagas} aplicações · ${m.livres} vagas · ${m.finalizadas || 0} aplicadas</span>
             </button>`
           )
@@ -665,7 +708,10 @@ async function carregarResumo() {
     </section>
   `;
   $$(".mun-card").forEach((btn) => {
-    btn.addEventListener("click", () => mostrarView("quadro", { municipioId: Number(btn.dataset.id) }));
+    btn.addEventListener("click", () => mostrarView("quadro", {
+      municipioId: Number(btn.dataset.id),
+      grupo: btn.dataset.grupo || "",
+    }));
   });
   $("#btn-publicar-nuvem")?.addEventListener("click", async () => {
     const btn = $("#btn-publicar-nuvem");
@@ -860,9 +906,23 @@ function quadroTodos() {
 }
 
 function quadroUrl() {
-  return state.municipioId
-    ? `/api/quadro?municipio_id=${state.municipioId}`
-    : "/api/quadro";
+  if (!state.municipioId) return "/api/quadro";
+  const qs = new URLSearchParams({ municipio_id: String(state.municipioId) });
+  if (state.grupoEscola) qs.set("grupo", state.grupoEscola);
+  return `/api/quadro?${qs}`;
+}
+
+function opcoesFiltroMun(municipios) {
+  const opts = [`<option value="0" ${quadroTodos() ? "selected" : ""}>Todos</option>`];
+  for (const m of municipios) {
+    const cidade = Number(m.id) === Number(state.municipioId) && state.grupoEscola !== "indigena";
+    opts.push(`<option value="${m.id}" ${cidade ? "selected" : ""}>${tit(m.nome)}</option>`);
+    if (ehFormoso(m.nome)) {
+      const ind = Number(m.id) === Number(state.municipioId) && state.grupoEscola === "indigena";
+      opts.push(`<option value="${m.id}:indigena" ${ind ? "selected" : ""}>${tit(m.nome)}/Indígena</option>`);
+    }
+  }
+  return opts.join("");
 }
 
 function exigirMunicipioQuadro(acao) {
@@ -873,23 +933,19 @@ function exigirMunicipioQuadro(acao) {
 
 async function carregarQuadro() {
   titulo("Quadro de aplicação", "Grade por escola, turno e dia — como um horário, com vago e choque visíveis.");
+  const municipios = await apiMunicipios();
+  if (state.municipioId == null && municipios.length) {
+    state.municipioId = municipios[0].id;
+  }
+  ajustarGrupoFormoso(municipios);
   if ($("#sel-mun") && $("#quadro-corpo")) {
-    $("#sel-mun").value = String(state.municipioId || 0);
+    $("#sel-mun").innerHTML = opcoesFiltroMun(municipios);
+    $("#sel-mun").value = valorFiltroMun();
     await pintarQuadro();
     return;
   }
-  const munP = apiMunicipios();
-  let quadroP = state.municipioId != null
-    ? api(quadroUrl())
-    : null;
-  const municipios = await munP;
-  if (state.municipioId == null && municipios.length) {
-    state.municipioId = municipios[0].id;
-    quadroP = api(quadroUrl());
-  }
-  const munOpts = [`<option value="0" ${quadroTodos() ? "selected" : ""}>Todos</option>`]
-    .concat(municipios.map((m) => `<option value="${m.id}" ${m.id === state.municipioId ? "selected" : ""}>${tit(m.nome)}</option>`))
-    .join("");
+  const quadroP = api(quadroUrl());
+  const munOpts = opcoesFiltroMun(municipios);
 
   $("#view-quadro").innerHTML = `
     <div class="toolbar">
@@ -927,7 +983,15 @@ async function carregarQuadro() {
   $("#so-vagos").checked = state.filtroVago;
   $("#sel-status").value = state.filtroStatus;
   $("#sel-mun").addEventListener("change", (e) => {
-    state.municipioId = Number(e.target.value) || 0;
+    const valor = String(e.target.value || "0");
+    if (valor.endsWith(":indigena")) {
+      state.municipioId = Number(valor.split(":")[0]) || 0;
+      state.grupoEscola = "indigena";
+    } else {
+      state.municipioId = Number(valor) || 0;
+      const nome = e.target.selectedOptions[0]?.textContent || "";
+      state.grupoEscola = state.municipioId && ehFormoso(nome) ? "cidade" : "";
+    }
     pintarQuadro();
   });
   $("#sel-rede").addEventListener("change", (e) => {
@@ -947,7 +1011,7 @@ async function carregarQuadro() {
   };
   $("#btn-reorganizar").onclick = async () => {
     if (!exigirMunicipioQuadro("recomeçar a escala")) return;
-    if (!confirm("Apagar as alocações deste município e montar a escala de novo nestes dias?")) return;
+    if (!confirm(`Apagar as alocações de ${munNomeAtual()} e montar a escala de novo nestes dias?`)) return;
     try {
       if ((state.diasMun || []).length) {
         await api(`/api/municipios/${state.municipioId}`, {
@@ -977,6 +1041,7 @@ async function carregarQuadro() {
   const qsRelatorioQuadro = () => {
     const qs = new URLSearchParams();
     if (state.municipioId) qs.set("municipio_id", String(state.municipioId));
+    if (state.grupoEscola) qs.set("grupo", state.grupoEscola);
     qs.set("rede", state.filtroRede || "TODAS");
     if (state.filtroVago) qs.set("so_vagos", "1");
     qs.set("status", state.filtroStatus || "TODAS");
@@ -994,10 +1059,13 @@ async function carregarQuadro() {
   }
   $("#btn-limpar").onclick = async () => {
     if (!exigirMunicipioQuadro("limpar alocações")) return;
-    if (!confirm("Deixar todas as vagas deste município livres?")) return;
+    if (!confirm(`Deixar todas as vagas de ${munNomeAtual()} livres?`)) return;
     await api("/api/quadro/limpar", {
       method: "POST",
-      body: JSON.stringify({ municipio_id: state.municipioId }),
+      body: JSON.stringify({
+        municipio_id: state.municipioId,
+        grupo: state.grupoEscola || null,
+      }),
     });
     pintarQuadro();
   };
@@ -1129,6 +1197,7 @@ async function rodarOrganizar(reset, extra = {}) {
       reset,
       aplicador_ids: extra.aplicador_ids || null,
       nova_rodada: !!extra.nova_rodada,
+      grupo: state.grupoEscola || null,
     }),
   });
   const extraTxt = r.ainda_vagas
@@ -1357,7 +1426,7 @@ async function pintarQuadro(preloaded = null) {
       .map((bloco) => `
         <section class="quadro-mun">
           <section class="panel" style="margin-bottom:10px">
-            <h2>${tit(bloco.municipio.nome)}</h2>
+            <h2>${rotuloMunQuadro(bloco.municipio.nome, bloco.grupo)}</h2>
             <p style="margin:0;color:var(--ink-soft)">${bloco.vagas} aplicações · ${bloco.livres} vagas · ${bloco.finalizadas || 0} aplicadas · ${bloco.choques} choques</p>
           </section>
           ${htmlTabelaQuadro(bloco)}
@@ -1377,7 +1446,7 @@ async function pintarQuadro(preloaded = null) {
   if (!q.vagas) {
     $("#quadro-corpo").innerHTML = `
       <section class="panel">
-        <h2>${tit(q.municipio.nome)}</h2>
+        <h2>${rotuloMunQuadro(q.municipio.nome, q.grupo)}</h2>
         ${periodoHtml}
         <p>Ainda não há aplicações neste município. Cadastre uma escola e depois uma vaga.</p>
         <button class="btn gold" id="btn-vazia-vaga">Nova aplicação</button>
@@ -1390,7 +1459,7 @@ async function pintarQuadro(preloaded = null) {
   }
   $("#quadro-corpo").innerHTML = `
     <section class="panel" style="margin-bottom:14px">
-      <h2>${tit(q.municipio.nome)}</h2>
+      <h2>${rotuloMunQuadro(q.municipio.nome, q.grupo)}</h2>
       ${periodoHtml}
       <p style="margin:8px 0 0;color:var(--ink-soft)">${q.vagas} aplicações · ${q.livres} vagas · ${q.finalizadas || 0} aplicadas · ${q.choques} choques · Salvar dias só abre as colunas; depois use Alocar com o que tem</p>
     </section>
@@ -1883,10 +1952,16 @@ async function carregarEscolas() {
 }
 
 async function abrirNovaAplicacao(municipioId) {
-  const [opcoes, escolas] = await Promise.all([
+  const [opcoes, escolasTodas] = await Promise.all([
     api("/api/opcoes"),
     api(municipioId ? `/api/escolas?municipio_id=${municipioId}` : "/api/escolas"),
   ]);
+  let escolas = escolasTodas;
+  if (Number(municipioId) === Number(state.municipioId) && state.grupoEscola === "indigena") {
+    escolas = escolasTodas.filter((e) => escolaIndigena(e.nome));
+  } else if (Number(municipioId) === Number(state.municipioId) && state.grupoEscola === "cidade") {
+    escolas = escolasTodas.filter((e) => !escolaIndigena(e.nome));
+  }
   if (!escolas.length) {
     alert("Cadastre uma escola neste município antes de criar a aplicação.");
     mostrarView("cadastro", { tab: "escolas" });

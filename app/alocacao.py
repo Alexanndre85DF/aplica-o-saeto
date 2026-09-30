@@ -10,6 +10,8 @@ from .regras import (
     dias_do_municipio,
     eh_segundo_ano_dia1,
     eh_segundo_ano_dia2,
+    escola_indigena,
+    grupo_formoso,
     serie_par_segundo_ano,
     turnos_sobrepoem,
 )
@@ -1118,17 +1120,45 @@ def _carga_dia(conn, municipio_id: int, dia: str) -> int:
     ).fetchone()["n"]
 
 
-def _preencher_datas_faltantes(conn, municipio_id: int) -> None:
+def _filtro_escolas(escola_ids: list[int] | None) -> tuple[str, list]:
+    if escola_ids is None:
+        return "", []
+    if not escola_ids:
+        return " AND 1=0", []
+    marcas = ", ".join("?" for _ in escola_ids)
+    return f" AND e.id IN ({marcas})", list(escola_ids)
+
+
+def escolas_do_grupo(conn, municipio_id: int | None, grupo: str | None) -> list[int] | None:
+    """None mantém o município inteiro. Lista restringe às escolas do filtro."""
+    if not municipio_id:
+        return None
+    mun = conn.execute("SELECT nome FROM municipios WHERE id = ?", (municipio_id,)).fetchone()
+    if not mun:
+        return None
+    pedido = grupo_formoso(mun["nome"], grupo)
+    if not pedido:
+        return None
+    rows = conn.execute(
+        "SELECT id, nome FROM escolas WHERE municipio_id = ?",
+        (municipio_id,),
+    ).fetchall()
+    querer_indigena = pedido == "indigena"
+    return [int(r["id"]) for r in rows if escola_indigena(r["nome"]) == querer_indigena]
+
+
+def _preencher_datas_faltantes(conn, municipio_id: int, escola_ids: list[int] | None = None) -> None:
     periodo = dias_do_municipio(_viagem_municipio(conn, municipio_id))
     if not periodo:
         return
+    frag, frag_params = _filtro_escolas(escola_ids)
     vagas = conn.execute(
-        """SELECT v.*, e.municipio_id
+        f"""SELECT v.*, e.municipio_id
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND (v.data IS NULL OR v.data = '')
+           WHERE e.municipio_id = ? AND (v.data IS NULL OR v.data = ''){frag}
            ORDER BY CASE WHEN v.serie LIKE '%DIA 2%' THEN 1 ELSE 0 END, v.id""",
-        (municipio_id,),
+        (municipio_id, *frag_params),
     ).fetchall()
     for vaga in vagas:
         item = dict(vaga)
@@ -1142,27 +1172,31 @@ def _preencher_datas_faltantes(conn, municipio_id: int) -> None:
         aplicar_data_na_vaga(conn, item, data, True)
 
 
-def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
+def redistribuir_datas_municipio(
+    conn, municipio_id: int, escola_ids: list[int] | None = None
+) -> int:
     row = _viagem_municipio(conn, municipio_id)
     periodo = dias_do_municipio(row)
     if not periodo:
         return 0
+    frag, frag_params = _filtro_escolas(escola_ids)
+    params = (municipio_id, *frag_params)
     antigas = [
         r["data"]
         for r in conn.execute(
-            """SELECT DISTINCT v.data FROM vagas v
+            f"""SELECT DISTINCT v.data FROM vagas v
                JOIN escolas e ON e.id = v.escola_id
-               WHERE e.municipio_id = ? AND v.data IS NOT NULL AND v.data != ''
+               WHERE e.municipio_id = ? AND v.data IS NOT NULL AND v.data != ''{frag}
                ORDER BY v.data""",
-            (municipio_id,),
+            params,
         )
     ]
     mapa = {antiga: periodo[min(i, len(periodo) - 1)] for i, antiga in enumerate(antigas)}
     vagas = conn.execute(
-        """SELECT v.id, v.data FROM vagas v
+        f"""SELECT v.id, v.data FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ?""",
-        (municipio_id,),
+           WHERE e.municipio_id = ?{frag}""",
+        params,
     ).fetchall()
     if not vagas:
         return 0
@@ -1176,11 +1210,11 @@ def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
         if nova and nova != vaga["data"]:
             conn.execute("UPDATE vagas SET data = ? WHERE id = ?", (nova, vaga["id"]))
     pares = conn.execute(
-        """SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
+        f"""SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ?""",
-        (municipio_id,),
+           WHERE e.municipio_id = ?{frag}""",
+        params,
     ).fetchall()
     for vaga in pares:
         if not eh_segundo_ano_dia1(vaga["serie"]) or not vaga["data"]:
@@ -1203,16 +1237,21 @@ def organizar(
     reset: bool = False,
     aplicador_ids: list[int] | None = None,
     nova_rodada: bool = False,
+    grupo: str | None = None,
 ) -> dict:
     params = []
     filtro = ""
+    ids_grupo = escolas_do_grupo(conn, municipio_id, grupo) if municipio_id else None
     if municipio_id:
         filtro = " AND e.municipio_id = ?"
         params.append(municipio_id)
+        frag, frag_params = _filtro_escolas(ids_grupo)
+        filtro += frag
+        params.extend(frag_params)
 
     if reset:
         if municipio_id:
-            redistribuir_datas_municipio(conn, municipio_id)
+            redistribuir_datas_municipio(conn, municipio_id, ids_grupo)
         else:
             for r in conn.execute("SELECT id FROM municipios"):
                 redistribuir_datas_municipio(conn, r["id"])
@@ -1227,7 +1266,7 @@ def organizar(
         )
     else:
         if municipio_id:
-            _preencher_datas_faltantes(conn, municipio_id)
+            _preencher_datas_faltantes(conn, municipio_id, ids_grupo)
         else:
             for r in conn.execute("SELECT id FROM municipios"):
                 _preencher_datas_faltantes(conn, r["id"])

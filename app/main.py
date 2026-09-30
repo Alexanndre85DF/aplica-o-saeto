@@ -32,7 +32,9 @@ from .alocacao import (
     definir_n_extras,
     enriquecer_vaga,
     enriquecer_vagas,
+    escolas_do_grupo,
     _agenda_ocupadas,
+    _filtro_escolas,
     finalizar_vaga,
     organizar,
     receber_prova,
@@ -75,7 +77,14 @@ from .relatorio import (
 from .especiais import criar_aluno_na_vaga
 from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
-from .regras import dias_do_municipio, fmt_data
+from .regras import (
+    dias_do_municipio,
+    eh_formoso_do_araguaia,
+    escola_indigena,
+    fmt_data,
+    grupo_formoso,
+    rotulo_municipio,
+)
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -116,10 +125,12 @@ class OrganizarBody(BaseModel):
     reset: bool = False
     aplicador_ids: list[int] | None = None
     nova_rodada: bool = False
+    grupo: str | None = None
 
 
 class LimparBody(BaseModel):
     municipio_id: int | None = None
+    grupo: str | None = None
 
 
 class AplicadorBody(BaseModel):
@@ -394,6 +405,31 @@ def api_opcoes():
     return opcoes()
 
 
+def _agrupar_resumo_municipios(detalhe: list[dict]) -> list[dict]:
+    blocos: dict[tuple, dict] = {}
+    for row in detalhe:
+        indigena = eh_formoso_do_araguaia(row["nome"]) and escola_indigena(row["escola"])
+        chave = (row["id"], "indigena" if indigena else "")
+        bloco = blocos.get(chave)
+        if bloco is None:
+            bloco = {
+                "id": row["id"],
+                "nome": row["nome"],
+                "grupo": "indigena" if indigena else "",
+                "vagas": 0,
+                "livres": 0,
+                "finalizadas": 0,
+            }
+            blocos[chave] = bloco
+        bloco["vagas"] += int(row["vagas"] or 0)
+        bloco["livres"] += int(row["livres"] or 0)
+        bloco["finalizadas"] += int(row["finalizadas"] or 0)
+    return sorted(
+        blocos.values(),
+        key=lambda m: (m["nome"], 1 if m["grupo"] == "indigena" else 0),
+    )
+
+
 @app.get("/api/resumo")
 def resumo():
     with get_db() as conn:
@@ -417,19 +453,20 @@ def resumo():
                    GROUP BY e.rede"""
             )
         }
-        por_mun = rows_to_dicts(
+        detalhe = rows_to_dicts(
             conn.execute(
-                """SELECT m.id, m.nome,
+                """SELECT m.id, m.nome, e.nome AS escola,
                           COUNT(v.id) AS vagas,
-                          COALESCE(SUM(CASE WHEN v.id IS NOT NULL AND v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                          COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
                           COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
                    FROM municipios m
                    JOIN escolas e ON e.municipio_id = m.id
                    JOIN vagas v ON v.escola_id = e.id
-                   GROUP BY m.id, m.nome
-                   ORDER BY m.nome"""
+                   GROUP BY m.id, m.nome, e.id, e.nome
+                   ORDER BY m.nome, e.nome"""
             )
         )
+        por_mun = _agrupar_resumo_municipios(detalhe)
         return {
             "municipios": tot["municipios"],
             "escolas": tot["escolas"],
@@ -916,6 +953,23 @@ def _celula_quadro(d: dict) -> dict:
     }
 
 
+def _filtrar_vagas_grupo(vagas: list[dict], grupo: str | None) -> list[dict]:
+    if grupo == "indigena":
+        return [v for v in vagas if escola_indigena(v.get("escola_nome") or "")]
+    if grupo == "cidade":
+        return [v for v in vagas if not escola_indigena(v.get("escola_nome") or "")]
+    return vagas
+
+
+def _partes_formoso(nome: str, vagas: list[dict]) -> list[tuple[str | None, list[dict]]]:
+    if not eh_formoso_do_araguaia(nome):
+        return [(None, vagas)]
+    return [
+        ("cidade", _filtrar_vagas_grupo(vagas, "cidade")),
+        ("indigena", _filtrar_vagas_grupo(vagas, "indigena")),
+    ]
+
+
 def _montar_quadro_de_vagas(mun_d: dict, vagas: list[dict]) -> dict:
     mun_d = dict(mun_d)
     mun_d["dias"] = dias_do_municipio(mun_d)
@@ -960,8 +1014,15 @@ def _montar_quadro_de_vagas(mun_d: dict, vagas: list[dict]) -> dict:
     }
 
 
+def _nome_filtro_quadro(dados: dict) -> str:
+    if dados.get("todos"):
+        return "Todos"
+    nome = ((dados.get("municipio") or {}).get("nome") or "Município")
+    return rotulo_municipio(nome, dados.get("grupo"))
+
+
 @app.get("/api/quadro")
-def quadro(municipio_id: int | None = None):
+def quadro(municipio_id: int | None = None, grupo: str | None = None):
     with get_db() as conn:
         if municipio_id:
             mun = conn.execute(
@@ -973,14 +1034,22 @@ def quadro(municipio_id: int | None = None):
             ).fetchone()
             if not mun:
                 raise HTTPException(404, "Município não encontrado.")
+            mun_d = row_to_dict(mun)
             vagas = conn.execute(
                 _SQL_VAGAS_QUADRO + " WHERE e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
                 (municipio_id,),
             ).fetchall()
-            datas_vagas = {r["data"] for r in vagas if r["data"]}
+            brutas = _filtrar_vagas_grupo(
+                [dict(raw) for raw in vagas],
+                grupo_formoso(mun_d.get("nome"), grupo),
+            )
+            datas_vagas = {r["data"] for r in brutas if r["data"]}
             agenda = _agenda_ocupadas(conn, datas_vagas or None)
-            enriquecidas = enriquecer_vagas(conn, [dict(raw) for raw in vagas], agenda)
-            return {**_montar_quadro_de_vagas(row_to_dict(mun), enriquecidas), "todos": False}
+            enriquecidas = enriquecer_vagas(conn, brutas, agenda)
+            bloco = _montar_quadro_de_vagas(mun_d, enriquecidas)
+            bloco["grupo"] = grupo_formoso(mun_d.get("nome"), grupo)
+            bloco["todos"] = False
+            return bloco
 
         municipios = conn.execute(
             """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
@@ -1001,12 +1070,14 @@ def quadro(municipio_id: int | None = None):
         totais = {"vagas": 0, "livres": 0, "choques": 0, "avisos": 0, "finalizadas": 0}
         for mun in municipios:
             mun_d = row_to_dict(mun)
-            bloco = _montar_quadro_de_vagas(mun_d, por_mun.get(int(mun_d["id"]), []))
-            if not bloco["vagas"]:
-                continue
-            quadros.append(bloco)
-            for chave in totais:
-                totais[chave] += bloco[chave]
+            for grupo_bloco, parte in _partes_formoso(mun_d.get("nome") or "", por_mun.get(int(mun_d["id"]), [])):
+                bloco = _montar_quadro_de_vagas(mun_d, parte)
+                if not bloco["vagas"]:
+                    continue
+                bloco["grupo"] = grupo_bloco
+                quadros.append(bloco)
+                for chave in totais:
+                    totais[chave] += bloco[chave]
         return {"todos": True, "quadros": quadros, **totais}
 
 
@@ -1016,12 +1087,10 @@ def quadro_pdf(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
+    grupo: str | None = None,
 ):
-    dados = quadro(municipio_id)
-    if dados.get("todos"):
-        nome_mun = "Todos"
-    else:
-        nome_mun = ((dados.get("municipio") or {}).get("nome") or "Município")
+    dados = quadro(municipio_id, grupo)
+    nome_mun = _nome_filtro_quadro(dados)
     bio = gerar_pdf_quadro(
         dados,
         municipio_nome=nome_mun,
@@ -1042,12 +1111,10 @@ def quadro_xlsx(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
+    grupo: str | None = None,
 ):
-    dados = quadro(municipio_id)
-    if dados.get("todos"):
-        nome_mun = "Todos"
-    else:
-        nome_mun = ((dados.get("municipio") or {}).get("nome") or "Município")
+    dados = quadro(municipio_id, grupo)
+    nome_mun = _nome_filtro_quadro(dados)
     bio = gerar_xlsx_quadro(
         dados,
         municipio_nome=nome_mun,
@@ -1244,6 +1311,7 @@ def api_organizar(body: OrganizarBody):
             body.reset,
             body.aplicador_ids,
             body.nova_rodada,
+            body.grupo,
         )
 
 
@@ -1251,12 +1319,14 @@ def api_organizar(body: OrganizarBody):
 def api_limpar(body: LimparBody):
     with get_db() as conn:
         if body.municipio_id:
+            ids = escolas_do_grupo(conn, body.municipio_id, body.grupo)
+            frag, frag_params = _filtro_escolas(ids)
             conn.execute(
-                """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
+                f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
                    WHERE escola_id IN (
-                     SELECT id FROM escolas WHERE municipio_id = ?
+                     SELECT e.id FROM escolas e WHERE e.municipio_id = ?{frag}
                    )""",
-                (body.municipio_id,),
+                (body.municipio_id, *frag_params),
             )
         else:
             conn.execute("UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL")
