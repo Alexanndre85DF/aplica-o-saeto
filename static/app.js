@@ -112,8 +112,10 @@ function semAcento(s) {
     .toUpperCase();
 }
 
-function ehFormoso(nome) {
-  return semAcento(nome) === "FORMOSO DO ARAGUAIA";
+const MUNICIPIOS_INDIGENA = new Set(["FORMOSO DO ARAGUAIA", "SANDOLANDIA"]);
+
+function separaIndigena(nome) {
+  return MUNICIPIOS_INDIGENA.has(semAcento(nome));
 }
 
 function escolaIndigena(nome) {
@@ -131,13 +133,13 @@ function valorFiltroMun() {
   return String(state.municipioId);
 }
 
-function ajustarGrupoFormoso(municipios) {
+function ajustarGrupoIndigena(municipios) {
   if (!state.municipioId) {
     state.grupoEscola = "";
     return;
   }
   const mun = (municipios || []).find((m) => Number(m.id) === Number(state.municipioId));
-  if (!mun || !ehFormoso(mun.nome)) {
+  if (!mun || !separaIndigena(mun.nome)) {
     state.grupoEscola = "";
     return;
   }
@@ -917,7 +919,7 @@ function opcoesFiltroMun(municipios) {
   for (const m of municipios) {
     const cidade = Number(m.id) === Number(state.municipioId) && state.grupoEscola !== "indigena";
     opts.push(`<option value="${m.id}" ${cidade ? "selected" : ""}>${tit(m.nome)}</option>`);
-    if (ehFormoso(m.nome)) {
+    if (separaIndigena(m.nome)) {
       const ind = Number(m.id) === Number(state.municipioId) && state.grupoEscola === "indigena";
       opts.push(`<option value="${m.id}:indigena" ${ind ? "selected" : ""}>${tit(m.nome)}/Indígena</option>`);
     }
@@ -937,7 +939,7 @@ async function carregarQuadro() {
   if (state.municipioId == null && municipios.length) {
     state.municipioId = municipios[0].id;
   }
-  ajustarGrupoFormoso(municipios);
+  ajustarGrupoIndigena(municipios);
   if ($("#sel-mun") && $("#quadro-corpo")) {
     $("#sel-mun").innerHTML = opcoesFiltroMun(municipios);
     $("#sel-mun").value = valorFiltroMun();
@@ -990,7 +992,7 @@ async function carregarQuadro() {
     } else {
       state.municipioId = Number(valor) || 0;
       const nome = e.target.selectedOptions[0]?.textContent || "";
-      state.grupoEscola = state.municipioId && ehFormoso(nome) ? "cidade" : "";
+      state.grupoEscola = state.municipioId && separaIndigena(nome) ? "cidade" : "";
     }
     pintarQuadro();
   });
