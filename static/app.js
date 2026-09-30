@@ -112,10 +112,8 @@ function semAcento(s) {
     .toUpperCase();
 }
 
-const MUNICIPIOS_INDIGENA = new Set(["FORMOSO DO ARAGUAIA", "SANDOLANDIA"]);
-
-function separaIndigena(nome) {
-  return MUNICIPIOS_INDIGENA.has(semAcento(nome));
+function municipioTemIndigena(m) {
+  return !!(m && (m.tem_indigena === true || m.tem_indigena === 1 || m.tem_indigena === "1"));
 }
 
 function escolaIndigena(nome) {
@@ -139,7 +137,7 @@ function ajustarGrupoIndigena(municipios) {
     return;
   }
   const mun = (municipios || []).find((m) => Number(m.id) === Number(state.municipioId));
-  if (!mun || !separaIndigena(mun.nome)) {
+  if (!mun || !municipioTemIndigena(mun)) {
     state.grupoEscola = "";
     return;
   }
@@ -918,8 +916,9 @@ function opcoesFiltroMun(municipios) {
   const opts = [`<option value="0" ${quadroTodos() ? "selected" : ""}>Todos</option>`];
   for (const m of municipios) {
     const cidade = Number(m.id) === Number(state.municipioId) && state.grupoEscola !== "indigena";
-    opts.push(`<option value="${m.id}" ${cidade ? "selected" : ""}>${tit(m.nome)}</option>`);
-    if (separaIndigena(m.nome)) {
+    const marca = municipioTemIndigena(m) ? "1" : "0";
+    opts.push(`<option value="${m.id}" data-indigena="${marca}" ${cidade ? "selected" : ""}>${tit(m.nome)}</option>`);
+    if (municipioTemIndigena(m)) {
       const ind = Number(m.id) === Number(state.municipioId) && state.grupoEscola === "indigena";
       opts.push(`<option value="${m.id}:indigena" ${ind ? "selected" : ""}>${tit(m.nome)}/Indígena</option>`);
     }
@@ -991,8 +990,8 @@ async function carregarQuadro() {
       state.grupoEscola = "indigena";
     } else {
       state.municipioId = Number(valor) || 0;
-      const nome = e.target.selectedOptions[0]?.textContent || "";
-      state.grupoEscola = state.municipioId && separaIndigena(nome) ? "cidade" : "";
+      const opt = e.target.selectedOptions[0];
+      state.grupoEscola = opt?.dataset.indigena === "1" ? "cidade" : "";
     }
     pintarQuadro();
   });

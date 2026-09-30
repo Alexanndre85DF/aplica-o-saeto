@@ -11,7 +11,7 @@ from .regras import (
     eh_segundo_ano_dia1,
     eh_segundo_ano_dia2,
     escola_indigena,
-    grupo_formoso,
+    grupo_escolas,
     serie_par_segundo_ano,
     turnos_sobrepoem,
 )
@@ -1136,7 +1136,7 @@ def escolas_do_grupo(conn, municipio_id: int | None, grupo: str | None) -> list[
     mun = conn.execute("SELECT nome FROM municipios WHERE id = ?", (municipio_id,)).fetchone()
     if not mun:
         return None
-    pedido = grupo_formoso(mun["nome"], grupo)
+    pedido = grupo_escolas(mun["nome"], grupo)
     if not pedido:
         return None
     rows = conn.execute(

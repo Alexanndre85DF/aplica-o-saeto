@@ -79,10 +79,9 @@ from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
 from .regras import (
     dias_do_municipio,
-    eh_formoso_do_araguaia,
     escola_indigena,
     fmt_data,
-    grupo_formoso,
+    grupo_escolas,
     rotulo_municipio,
 )
 
@@ -408,7 +407,7 @@ def api_opcoes():
 def _agrupar_resumo_municipios(detalhe: list[dict]) -> list[dict]:
     blocos: dict[tuple, dict] = {}
     for row in detalhe:
-        indigena = eh_formoso_do_araguaia(row["nome"]) and escola_indigena(row["escola"])
+        indigena = escola_indigena(row["escola"])
         chave = (row["id"], "indigena" if indigena else "")
         bloco = blocos.get(chave)
         if bloco is None:
@@ -615,6 +614,13 @@ def municipios():
         )
         for row in rows:
             row["dias"] = dias_do_municipio(row)
+        indigenas = {
+            int(r["municipio_id"])
+            for r in conn.execute("SELECT municipio_id, nome FROM escolas")
+            if escola_indigena(r["nome"])
+        }
+        for row in rows:
+            row["tem_indigena"] = int(row["id"]) in indigenas
         return rows
 
 
@@ -961,8 +967,8 @@ def _filtrar_vagas_grupo(vagas: list[dict], grupo: str | None) -> list[dict]:
     return vagas
 
 
-def _partes_formoso(nome: str, vagas: list[dict]) -> list[tuple[str | None, list[dict]]]:
-    if not eh_formoso_do_araguaia(nome):
+def _partes_indigena(vagas: list[dict]) -> list[tuple[str | None, list[dict]]]:
+    if not any(escola_indigena(v.get("escola_nome") or "") for v in vagas):
         return [(None, vagas)]
     return [
         ("cidade", _filtrar_vagas_grupo(vagas, "cidade")),
@@ -1041,13 +1047,13 @@ def quadro(municipio_id: int | None = None, grupo: str | None = None):
             ).fetchall()
             brutas = _filtrar_vagas_grupo(
                 [dict(raw) for raw in vagas],
-                grupo_formoso(mun_d.get("nome"), grupo),
+                grupo_escolas(mun_d.get("nome"), grupo),
             )
             datas_vagas = {r["data"] for r in brutas if r["data"]}
             agenda = _agenda_ocupadas(conn, datas_vagas or None)
             enriquecidas = enriquecer_vagas(conn, brutas, agenda)
             bloco = _montar_quadro_de_vagas(mun_d, enriquecidas)
-            bloco["grupo"] = grupo_formoso(mun_d.get("nome"), grupo)
+            bloco["grupo"] = grupo_escolas(mun_d.get("nome"), grupo)
             bloco["todos"] = False
             return bloco
 
@@ -1070,7 +1076,7 @@ def quadro(municipio_id: int | None = None, grupo: str | None = None):
         totais = {"vagas": 0, "livres": 0, "choques": 0, "avisos": 0, "finalizadas": 0}
         for mun in municipios:
             mun_d = row_to_dict(mun)
-            for grupo_bloco, parte in _partes_formoso(mun_d.get("nome") or "", por_mun.get(int(mun_d["id"]), [])):
+            for grupo_bloco, parte in _partes_indigena(por_mun.get(int(mun_d["id"]), [])):
                 bloco = _montar_quadro_de_vagas(mun_d, parte)
                 if not bloco["vagas"]:
                     continue
