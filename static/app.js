@@ -1178,6 +1178,7 @@ async function abrirPainelAlocar() {
           body: JSON.stringify({
             dias: state.diasMun,
             aplicar_datas_vagas: true,
+            grupo: state.grupoEscola || null,
           }),
         });
       }
@@ -1299,6 +1300,7 @@ async function salvarPeriodoMunicipio(limpar) {
     body: JSON.stringify({
       dias,
       limpar_datas_vagas: !!limpar,
+      grupo: state.grupoEscola || null,
     }),
   });
   await pintarQuadro();

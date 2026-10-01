@@ -58,11 +58,32 @@ def _unicos_problemas(problemas: list[dict]) -> list[dict]:
     return unicos
 
 
+def _lado_escola(nome) -> str:
+    return "indigena" if escola_indigena(nome) else "cidade"
+
+
 def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
     problemas = []
     mun_atual = vaga.get("municipio_id")
     mesma_data = bool(vaga.get("data"))
     for o in outros:
+        if (
+            o.get("papel") != "extra"
+            and o.get("municipio_id") == mun_atual
+            and _lado_escola(o.get("escola_nome")) != _lado_escola(vaga.get("escola_nome"))
+        ):
+            lado = "indígenas" if _lado_escola(o.get("escola_nome")) == "indigena" else "da cidade"
+            problemas.append(
+                {
+                    "tipo": "outro_grupo",
+                    "grau": "choque",
+                    "mensagem": (
+                        f"Já está nas escolas {lado} deste município"
+                        f" ({o.get('escola_nome')})."
+                    ),
+                }
+            )
+            continue
         if not mesma_data or not o["data"]:
             if o["municipio_id"] != mun_atual:
                 problemas.append(
@@ -779,7 +800,12 @@ def candidatos_para_extra(
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
                 "identificado": identificado,
-                "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
+                "no_municipio": any(
+                    o["municipio_id"] == vaga["municipio_id"]
+                    and o.get("papel") != "extra"
+                    and _lado_escola(o.get("escola_nome")) == _lado_escola(vaga.get("escola_nome"))
+                    for o in slots
+                ),
                 "ok": ok,
                 "choques": checagem["choques"],
                 "avisos": checagem["avisos"],
@@ -880,7 +906,12 @@ def candidatos_para_vaga(
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
                 "identificado": identificado,
-                "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
+                "no_municipio": any(
+                    o["municipio_id"] == vaga["municipio_id"]
+                    and o.get("papel") != "extra"
+                    and _lado_escola(o.get("escola_nome")) == _lado_escola(vaga.get("escola_nome"))
+                    for o in slots
+                ),
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],
                 "avisos": checagem["avisos"],
@@ -1111,12 +1142,13 @@ def garantir_data_do_periodo(conn, vaga: dict, repetir_par: bool = True) -> None
     aplicar_data_na_vaga(conn, vaga, data, repetir_par)
 
 
-def _carga_dia(conn, municipio_id: int, dia: str) -> int:
+def _carga_dia(conn, municipio_id: int, dia: str, escola_ids: list[int] | None = None) -> int:
+    frag, frag_params = _filtro_escolas(escola_ids)
     return conn.execute(
-        """SELECT COUNT(*) n FROM vagas v
+        f"""SELECT COUNT(*) n FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND v.data = ?""",
-        (municipio_id, dia),
+           WHERE e.municipio_id = ? AND v.data = ?{frag}""",
+        (municipio_id, dia, *frag_params),
     ).fetchone()["n"]
 
 
@@ -1168,7 +1200,7 @@ def _preencher_datas_faltantes(conn, municipio_id: int, escola_ids: list[int] | 
             garantir_data_do_periodo(conn, item, True)
             continue
         candidatos = periodo[:-1] if eh_segundo_ano_dia1(item["serie"]) and len(periodo) > 1 else periodo
-        data = min(candidatos, key=lambda d: _carga_dia(conn, municipio_id, d))
+        data = min(candidatos, key=lambda d: _carga_dia(conn, municipio_id, d, escola_ids))
         aplicar_data_na_vaga(conn, item, data, True)
 
 
@@ -1352,7 +1384,13 @@ def organizar(
                     continue
                 slots = agenda.get(a["id"], [])
                 score = random.randint(-8, 8)
-                if any(o["municipio_id"] == vaga["municipio_id"] for o in slots):
+                lado = _lado_escola(vaga.get("escola_nome"))
+                if any(
+                    o.get("municipio_id") == vaga["municipio_id"]
+                    and o.get("papel") != "extra"
+                    and _lado_escola(o.get("escola_nome")) == lado
+                    for o in slots
+                ):
                     score += 100
                 if any(o["escola_id"] == vaga["escola_id"] for o in slots):
                     score += 40

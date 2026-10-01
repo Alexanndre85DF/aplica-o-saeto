@@ -181,6 +181,7 @@ class MunicipioPatchBody(BaseModel):
     dias: list[str] | None = None
     limpar_datas_vagas: bool = False
     aplicar_datas_vagas: bool = False
+    grupo: str | None = None
 
 
 class EscolaBody(BaseModel):
@@ -780,9 +781,11 @@ def api_editar_municipio(municipio_id: int, body: MunicipioPatchBody):
         try:
             dados = body.model_dump(exclude_unset=True)
             aplicar = dados.pop("aplicar_datas_vagas", False)
-            mun = atualizar_municipio(conn, municipio_id, **dados)
+            grupo = dados.pop("grupo", None)
+            ids_grupo = escolas_do_grupo(conn, municipio_id, grupo)
+            mun = atualizar_municipio(conn, municipio_id, escola_ids=ids_grupo, **dados)
             if aplicar:
-                _preencher_datas_faltantes(conn, municipio_id)
+                _preencher_datas_faltantes(conn, municipio_id, ids_grupo)
                 mun = atualizar_municipio(conn, municipio_id)
             return mun
         except Exception as exc:

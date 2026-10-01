@@ -177,11 +177,20 @@ def criar_municipio(conn, nome: str, data_saida=None, data_retorno=None, dias=No
     return obter_municipio(conn, municipio_id)
 
 
-def _limpar_datas_vagas_municipio(conn, municipio_id: int) -> None:
+def _limpar_datas_vagas_municipio(conn, municipio_id: int, escola_ids: list[int] | None = None) -> None:
+    if escola_ids is None:
+        conn.execute(
+            """UPDATE vagas SET data = NULL
+               WHERE escola_id IN (SELECT id FROM escolas WHERE municipio_id = ?)""",
+            (municipio_id,),
+        )
+        return
+    if not escola_ids:
+        return
+    marcas = ", ".join("?" for _ in escola_ids)
     conn.execute(
-        """UPDATE vagas SET data = NULL
-           WHERE escola_id IN (SELECT id FROM escolas WHERE municipio_id = ?)""",
-        (municipio_id,),
+        f"UPDATE vagas SET data = NULL WHERE escola_id IN ({marcas})",
+        list(escola_ids),
     )
 
 
@@ -193,6 +202,7 @@ def atualizar_municipio(
     data_retorno=UNSET,
     dias=UNSET,
     limpar_datas_vagas: bool = False,
+    escola_ids: list[int] | None = None,
 ) -> dict:
     atual = conn.execute("SELECT * FROM municipios WHERE id = ?", (municipio_id,)).fetchone()
     if not atual:
@@ -230,7 +240,7 @@ def atualizar_municipio(
         if not lista:
             limpar_datas_vagas = True
     if limpar_datas_vagas:
-        _limpar_datas_vagas_municipio(conn, municipio_id)
+        _limpar_datas_vagas_municipio(conn, municipio_id, escola_ids)
     return obter_municipio(conn, municipio_id)
 
 
