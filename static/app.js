@@ -1741,7 +1741,7 @@ async function carregarDiarias() {
     ${t.sem_matricula ? `<p class="aviso-diaria">Falta matrícula em ${t.sem_matricula} linha(s). Preencha em Aplicadores para a folha oficial fechar.</p>` : ""}
     <section class="panel" style="margin-bottom:16px">
       <h2>Valor da diária</h2>
-      <p class="escola-meta" style="margin-bottom:12px">Padrão do modelo: R$ 189 × dias da viagem (saída até retorno). Aplicação em Gurupi não entra. Meia diária vale 0,5.</p>
+      <p class="escola-meta" style="margin-bottom:12px">Padrão do modelo: R$ 189 × dias da viagem (saída até retorno). Aplicação em Gurupi não entra. Meia diária vale 0,5. Se a pessoa está em dois municípios no mesmo dia, esse dia conta uma vez: fica no lote que começa antes.</p>
       <form id="form-valor-diaria" class="form-grid">
         <label class="campo">Valor padrão
           <input name="valor_padrao" type="text" value="${escHtml(String(folha.valor_padrao).replace(".", ","))}" />
@@ -1808,7 +1808,7 @@ async function carregarDiarias() {
           <td><b>${escHtml(tit(l.nome))}</b>${papel}${l.sem_matricula ? ' <span class="chip vago">sem matrícula</span>' : ""}</td>
           <td>${escHtml(l.matricula) || "—"}</td>
           <td><input class="os-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${escHtml(l.os)}" placeholder="OS" /></td>
-          <td><input class="qtd-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${String(l.qtd_diarias).replace(".", ",")}" title="Sugerido: ${l.qtd_sugerida}" /></td>
+          <td><input class="qtd-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${String(l.qtd_diarias).replace(".", ",")}" title="Sugerido: ${l.qtd_sugerida}" />${l.dias_ja_contados ? `<div class="escola-meta">${escHtml(l.dias_ja_contados)}</div>` : ""}</td>
           <td>${escHtml(l.valor_fmt)}</td>
           <td style="white-space:nowrap">
             <button class="btn sm" data-salvar-dia="${l.aplicador_id}" data-mid="${l.municipio_id}">Salvar</button>

@@ -158,6 +158,75 @@ def _qtd_sugerida(saida: str | None, retorno: str | None) -> Decimal:
     return Decimal("1")
 
 
+def _dia_curto(iso: str) -> str:
+    _ano, mes, dia = str(iso)[:10].split("-")
+    return f"{dia}/{mes}"
+
+
+def _lista_dias(dias: list[str]) -> str:
+    curtos = [_dia_curto(d) for d in dias]
+    if len(curtos) <= 1:
+        return curtos[0] if curtos else ""
+    return ", ".join(curtos[:-1]) + " e " + curtos[-1]
+
+
+def _recalcular_valor_linha(linha: dict) -> None:
+    qtd = Decimal(str(linha["qtd_diarias"]))
+    unitario = Decimal(str(linha["valor_unitario"]))
+    valor = (qtd * unitario).quantize(CENTAVO)
+    linha["valor"] = float(valor)
+    linha["valor_fmt"] = fmt_moeda(valor)
+
+
+def _aplicar_dia_unico(linhas: list[dict]) -> None:
+    """O mesmo dia em dois municípios conta uma diária.
+
+    O lote que começa antes fica com o dia. O outro só recebe os dias que ainda
+    não entraram. Quantidade digitada na mão não é alterada.
+    """
+    por_pessoa: dict[int, list[dict]] = defaultdict(list)
+    for linha in linhas:
+        linha["dias_ja_contados"] = ""
+        if linha.get("excluido"):
+            continue
+        por_pessoa[int(linha["aplicador_id"])].append(linha)
+    for grupo in por_pessoa.values():
+        if len(grupo) < 2:
+            continue
+        grupo.sort(
+            key=lambda x: (
+                x.get("data_saida") or "9999",
+                (x.get("municipio") or ""),
+                int(x.get("municipio_id") or 0),
+            )
+        )
+        dono: dict[str, str] = {}
+        for linha in grupo:
+            dias = periodo_dias(linha.get("data_saida"), linha.get("data_retorno"))
+            if not dias:
+                continue
+            repetidos: dict[str, list[str]] = defaultdict(list)
+            proprios = []
+            for dia in dias:
+                if dia in dono:
+                    repetidos[dono[dia]].append(dia)
+                else:
+                    dono[dia] = linha.get("municipio") or ""
+                    proprios.append(dia)
+            if not repetidos:
+                continue
+            sugerida = Decimal(len(proprios))
+            partes = []
+            for mun, lista in repetidos.items():
+                verbo = "já contado" if len(lista) == 1 else "já contados"
+                partes.append(f"{_lista_dias(lista)} {verbo} em {mun}")
+            linha["dias_ja_contados"] = ". ".join(partes)
+            linha["qtd_sugerida"] = float(sugerida)
+            if not linha["qtd_ajustada"]:
+                linha["qtd_diarias"] = float(sugerida)
+                _recalcular_valor_linha(linha)
+
+
 def montar_folha(conn) -> dict:
     padrao = valor_padrao(conn)
     valores = _valores_por_municipio(conn)
@@ -233,6 +302,7 @@ def montar_folha(conn) -> dict:
             "data_fmt": fmt_periodo(saida, retorno),
             "municipio": bruto["municipio"],
             "rota": f"{SEDE} A {str(bruto['municipio'] or '').upper()}",
+            "dias_ja_contados": "",
         }
         linhas_avulsas.append(linha)
         gchave = (saida or "", retorno or "", mun_id)
@@ -249,6 +319,8 @@ def montar_folha(conn) -> dict:
             },
         )
         grupo["linhas"].append(linha)
+
+    _aplicar_dia_unico(linhas_avulsas)
 
     grupos = []
     total_geral = Decimal("0")
