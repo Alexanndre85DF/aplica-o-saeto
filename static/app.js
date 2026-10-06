@@ -1493,7 +1493,10 @@ async function carregarAplicadores() {
     "Aplicadores",
     "Cadastre as pessoas uma vez. Extra não é outro cadastro: no quadro, depois do aplicador da turma, busque o mesmo nome para acompanhar aluno especial."
   );
-  const lista = await api("/api/aplicadores?tipo=APLICADOR");
+  const [lista, portal] = await Promise.all([
+    api("/api/aplicadores?tipo=APLICADOR"),
+    api("/api/portal-aplicador"),
+  ]);
   const pendentes = lista.filter((a) => !a.identificado).length;
   const linkGeral = `${location.origin}/acesso`;
   const opts = lista.length
@@ -1506,6 +1509,17 @@ async function carregarAplicadores() {
         .join("")
     : `<option value="" disabled selected>Crie os números primeiro</option>`;
   $("#view-aplicadores").innerHTML = `
+    <section class="panel" style="margin-bottom:16px">
+      <h2>Acesso dos aplicadores</h2>
+      <p class="escola-meta" style="margin-bottom:12px">
+        ${portal.aberto
+          ? "Os links estão liberados. Quem abrir /acesso entra com o CPF."
+          : "Os links estão suspensos. Quem abrir /acesso vê que o acesso está fora do ar. O cadastro e a escala continuam aqui."}
+      </p>
+      <button type="button" class="btn ${portal.aberto ? "warn" : "gold"}" id="btn-portal">
+        ${portal.aberto ? "Suspender acesso" : "Liberar acesso"}
+      </button>
+    </section>
     <section class="panel" style="margin-bottom:16px">
       <h2>Criar números de aplicador</h2>
       <p class="escola-meta" style="margin-bottom:12px">
@@ -1560,6 +1574,22 @@ async function carregarAplicadores() {
       </table>
     </section>
   `;
+  $("#btn-portal").onclick = async () => {
+    const liberar = !portal.aberto;
+    const aviso = liberar
+      ? "Liberar o acesso dos aplicadores? Os links /acesso voltam a entrar com o CPF."
+      : "Suspender o acesso dos aplicadores? Quem abrir o link não entra, até você liberar de novo.";
+    if (!confirm(aviso)) return;
+    try {
+      await api("/api/portal-aplicador", {
+        method: "PUT",
+        body: JSON.stringify({ aberto: liberar }),
+      });
+      carregarAplicadores();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
   $("#form-lote").onsubmit = async (ev) => {
     ev.preventDefault();
     const qtd = Number(ev.target.quantidade.value);

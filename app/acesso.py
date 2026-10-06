@@ -6,6 +6,25 @@ from datetime import datetime, timedelta, timezone
 from .cadastro import formatar_cpf, normalizar_cpf
 from .regras import fmt_data
 
+META_PORTAL_APLICADOR = "portal_aplicador_aberto"
+
+
+def portal_aplicador_aberto(conn) -> bool:
+    row = conn.execute(
+        "SELECT valor FROM meta WHERE chave = ?", (META_PORTAL_APLICADOR,)
+    ).fetchone()
+    if not row or row["valor"] in (None, ""):
+        return False
+    return str(row["valor"]) == "1"
+
+
+def definir_portal_aplicador(conn, aberto: bool) -> bool:
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(chave, valor) VALUES (?, ?)",
+        (META_PORTAL_APLICADOR, "1" if aberto else "0"),
+    )
+    return bool(aberto)
+
 
 def garantir_token_acesso(conn, aplicador_id: int) -> str:
     row = conn.execute(

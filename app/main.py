@@ -5,17 +5,19 @@ from pathlib import Path
 
 from fastapi import Cookie, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .acesso import (
     aplicador_da_sessao,
+    definir_portal_aplicador,
     encerrar_sessao,
     entrar_por_cpf,
     garantir_token_acesso,
     minhas_aplicacoes,
     minhas_extras,
+    portal_aplicador_aberto,
 )
 from .admin_auth import (
     COOKIE_ADMIN,
@@ -144,6 +146,10 @@ class AplicadorBody(BaseModel):
 class LoteAplicadoresBody(BaseModel):
     quantidade: int
     tipo: str | None = "APLICADOR"
+
+
+class PortalAplicadorBody(BaseModel):
+    aberto: bool
 
 
 class VincularBody(BaseModel):
@@ -290,10 +296,67 @@ def index():
     return resp
 
 
+_PAGINA_ACESSO_SUSPENSO = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Acesso suspenso · SAETO SRE Gurupi</title>
+  <link rel="stylesheet" href="/static/acesso.css?v=win98-11" />
+</head>
+<body>
+  <main class="portal">
+    <section class="win">
+      <div class="win-title">
+        <span class="win-icon" aria-hidden="true"></span>
+        <span>Acesso do aplicador — SAETO</span>
+      </div>
+      <div class="win-body">
+        <header class="portal-brand">
+          <span>SRE Gurupi · SAETO 2026</span>
+          <strong>Acesso suspenso</strong>
+        </header>
+        <section class="card">
+          <h1>Acesso suspenso</h1>
+          <p>O acesso dos aplicadores está fora do ar neste momento. Quando a SRE liberar, este mesmo link volta a funcionar.</p>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+def _exigir_portal_aberto(conn) -> None:
+    if not portal_aplicador_aberto(conn):
+        raise HTTPException(403, "O acesso dos aplicadores está suspenso no momento.")
+
+
 @app.get("/acesso")
 @app.get("/acesso/{token_link}")
 def pagina_acesso(token_link: str | None = None):
-    return FileResponse(STATIC / "acesso.html")
+    with get_db() as conn:
+        aberto = portal_aplicador_aberto(conn)
+    if not aberto:
+        resp = HTMLResponse(_PAGINA_ACESSO_SUSPENSO)
+    else:
+        resp = FileResponse(STATIC / "acesso.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/portal-aplicador")
+def api_portal_aplicador():
+    with get_db() as conn:
+        return {"aberto": portal_aplicador_aberto(conn)}
+
+
+@app.put("/api/portal-aplicador")
+def api_definir_portal_aplicador(body: PortalAplicadorBody):
+    with get_db() as conn:
+        aberto = definir_portal_aplicador(conn, body.aberto)
+    return {"aberto": aberto}
 
 
 COOKIE_PORTAL = "saeto_portal"
@@ -335,6 +398,7 @@ def api_admin_sair(request: Request, response: Response):
 @app.post("/api/acesso/entrar")
 def api_acesso_entrar(body: EntrarBody, response: Response):
     with get_db() as conn:
+        _exigir_portal_aberto(conn)
         try:
             dados = entrar_por_cpf(conn, body.cpf, body.token_link)
         except Exception as exc:
@@ -352,6 +416,7 @@ def api_acesso_entrar(body: EntrarBody, response: Response):
 @app.get("/api/acesso/eu")
 def api_acesso_eu(saeto_portal: str | None = Cookie(default=None)):
     with get_db() as conn:
+        _exigir_portal_aberto(conn)
         try:
             pessoa = aplicador_da_sessao(conn, saeto_portal)
         except LookupError as exc:
@@ -375,6 +440,7 @@ def api_acesso_finalizar(
     saeto_portal: str | None = Cookie(default=None),
 ):
     with get_db() as conn:
+        _exigir_portal_aberto(conn)
         try:
             pessoa = aplicador_da_sessao(conn, saeto_portal)
         except LookupError as exc:
