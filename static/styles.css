@@ -867,3 +867,117 @@ table.grade {
   .taskbar { grid-column: 1; grid-row: 3; }
   .cards { grid-template-columns: 1fr 1fr; }
 }
+
+@media (max-width: 720px) {
+  html, body {
+    height: 100%;
+    height: 100dvh;
+  }
+  body {
+    min-height: 100dvh;
+    height: 100dvh;
+    overflow: hidden;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-left: max(6px, env(safe-area-inset-left));
+    padding-right: max(6px, env(safe-area-inset-right));
+  }
+  .sidebar { min-width: 0; max-width: 100%; }
+  .sidebar-body {
+    padding: 8px;
+    gap: 8px;
+    min-width: 0;
+    overflow: visible;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .brand-kicker { margin: 0; }
+  .sidebar nav {
+    flex-direction: row;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .sidebar nav::-webkit-scrollbar { display: none; height: 0; }
+  .nav-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 8px 12px;
+  }
+  main {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .main-body { padding: 10px 10px 16px; }
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .topbar h1,
+  .topbar p { overflow-wrap: anywhere; }
+  .sessao-admin {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    column-gap: 10px;
+    text-align: left;
+    min-width: 0;
+  }
+  .sessao-admin .kicker { grid-column: 1; margin: 0; }
+  .sessao-admin strong {
+    grid-column: 1;
+    overflow-wrap: anywhere;
+    margin: 0;
+  }
+  .sessao-admin .btn { grid-column: 2; grid-row: 1 / span 2; min-height: 36px; }
+  .top-actions { justify-content: stretch; }
+  .top-actions .btn {
+    flex: 1;
+    min-height: 40px;
+    white-space: normal;
+    text-align: center;
+  }
+  .toolbar select,
+  .toolbar input[type="text"],
+  #sel-escola {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .toolbar .btn { min-height: 40px; }
+  .legend { margin-left: 0; width: 100%; }
+  .view { min-width: 0; }
+  .tabela { display: block; overflow-x: auto; }
+  input, select, textarea { font-size: 16px; }
+  .drawer {
+    width: min(100% - 16px, 460px);
+    max-height: 92dvh;
+  }
+  .drawer-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .taskbar {
+    height: auto;
+    min-height: var(--taskbar);
+    gap: 4px;
+    padding-bottom: max(2px, env(safe-area-inset-bottom));
+  }
+  .task-btn {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .assinatura { display: none; }
+  .tray { min-width: 52px; padding-left: 6px; padding-right: 6px; }
+}

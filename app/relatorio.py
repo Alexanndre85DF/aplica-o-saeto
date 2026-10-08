@@ -270,6 +270,160 @@ def nome_arquivo_xlsx(municipio_nome: str) -> str:
     return nome_arquivo_quadro(municipio_nome, "xlsx")
 
 
+_COLS_ACESSO_AP = [
+    (24, "Data"),
+    (38, "Município"),
+    (72, "Escola"),
+    (28, "Turno"),
+    (46, "Série / turma"),
+    (24, "Estudantes"),
+    (22, "Situação"),
+    (23, "Prova"),
+]
+_COLS_ACESSO_EX = [
+    (24, "Data"),
+    (38, "Município"),
+    (68, "Escola"),
+    (26, "Turno"),
+    (42, "Série / turma"),
+    (45, "Aluno"),
+    (34, "Titular"),
+]
+
+
+def _serie_turma(item: dict) -> str:
+    serie = item.get("serie") or ""
+    turma = item.get("turma") or ""
+    return f"{serie} - {turma}".strip(" -") if turma else serie
+
+
+def _estudantes_acesso(item: dict) -> str:
+    total = item.get("n_alunos")
+    if total in (None, ""):
+        return "-"
+    if item.get("finalizada") and item.get("n_presentes") is not None:
+        return f"{item['n_presentes']} de {total}"
+    return str(total)
+
+
+class _PdfAcesso(FPDF):
+    def __init__(self, subtitulo: str):
+        super().__init__(orientation="L", unit="mm", format="A4")
+        self.subtitulo = subtitulo
+        self._cols: list[tuple[float, str]] = []
+        self._repetir_cols = False
+        self.set_margins(10, 12, 10)
+        self.set_auto_page_break(auto=True, margin=14)
+
+    def header(self):
+        self.set_font("Helvetica", "B", 12)
+        self.cell(0, 6, _txt("SAETO SRE Gurupi - Minhas aplicações"), ln=True)
+        self.set_font("Helvetica", "", 8)
+        self.cell(0, 5, _txt(self.subtitulo), ln=True)
+        self.ln(1)
+        if self._cols and self._repetir_cols:
+            self._cabecalho_cols()
+
+    def _cabecalho_cols(self):
+        self.set_font("Helvetica", "B", 8)
+        self.set_fill_color(0, 0, 128)
+        self.set_text_color(255, 255, 255)
+        for largura, titulo in self._cols:
+            self.cell(largura, 6, _txt(titulo), border=1, fill=True)
+        self.ln()
+        self.set_text_color(0, 0, 0)
+        self.set_font("Helvetica", "", 8)
+
+    def footer(self):
+        self.set_y(-10)
+        self.set_font("Helvetica", "", 8)
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        self.cell(0, 8, _txt(f"Emitido em {agora}  -  Página {self.page_no()}/{{nb}}"), align="C")
+
+    def _abrir_secao(self, titulo: str, cols: list[tuple[float, str]]) -> None:
+        self._repetir_cols = False
+        self._cols = cols
+        if self.get_y() + 20 > self.page_break_trigger:
+            self.add_page()
+        self.ln(2)
+        self.set_font("Helvetica", "B", 10)
+        self.cell(0, 6, _txt(titulo), ln=True)
+        self._cabecalho_cols()
+        self._repetir_cols = True
+
+    def _linha(self, valores: list[str], zebra: bool) -> None:
+        self.set_fill_color(236, 236, 245) if zebra else self.set_fill_color(255, 255, 255)
+        self.set_font("Helvetica", "", 8)
+        for largura, valor in zip((c[0] for c in self._cols), valores):
+            _celula(self, largura, 6, valor, fill=True)
+        self.ln()
+
+
+def nome_arquivo_acesso(codigo: str) -> str:
+    base = unicodedata.normalize("NFKD", codigo or "aplicador")
+    base = "".join(c for c in base if not unicodedata.combining(c))
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-").lower()[:32]
+    return f"aplicacoes-{slug or 'aplicador'}.pdf"
+
+
+def gerar_pdf_acesso(
+    *,
+    nome: str,
+    codigo: str,
+    cpf: str,
+    aplicacoes: list[dict],
+    extras: list[dict],
+) -> BytesIO:
+    partes = [nome or codigo or "Aplicador"]
+    if codigo:
+        partes.append(codigo)
+    if cpf:
+        partes.append(cpf)
+    partes.append(f"{len(aplicacoes)} aplicação(ões)")
+    if extras:
+        partes.append(f"{len(extras)} extra(s)")
+    pdf = _PdfAcesso("  -  ".join(partes))
+    pdf.alias_nb_pages()
+    pdf.add_page()
+    if aplicacoes:
+        pdf._abrir_secao("Aplicações", _COLS_ACESSO_AP)
+        for i, item in enumerate(aplicacoes):
+            pdf._linha(
+                [
+                    item.get("data_fmt") or "Sem data",
+                    item.get("municipio") or "",
+                    item.get("escola") or "",
+                    item.get("turno") or "",
+                    _serie_turma(item),
+                    _estudantes_acesso(item),
+                    "Finalizada" if item.get("finalizada") else "Prevista",
+                    "Recebida" if item.get("prova_recebida") else "Pendente",
+                ],
+                zebra=bool(i % 2),
+            )
+    if extras:
+        pdf._abrir_secao("Extra", _COLS_ACESSO_EX)
+        for i, item in enumerate(extras):
+            titular = item.get("titular") or {}
+            pdf._linha(
+                [
+                    item.get("data_fmt") or "Sem data",
+                    item.get("municipio") or "",
+                    item.get("escola") or "",
+                    item.get("turno") or "",
+                    _serie_turma(item),
+                    item.get("aluno_nome") or "-",
+                    titular.get("nome") or titular.get("codigo") or "Sem titular",
+                ],
+                zebra=bool(i % 2),
+            )
+    if not aplicacoes and not extras:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 8, _txt("Nenhuma aplicação ou extra atribuído."), ln=True)
+    bruto = pdf.output()
+    return BytesIO(bytes(bruto))
+
+
 def gerar_xlsx_quadro(
     payload: dict,
     *,

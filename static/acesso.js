@@ -48,6 +48,10 @@ document.getElementById("form-login").addEventListener("submit", async (ev) => {
   }
 });
 
+document.getElementById("btn-pdf").addEventListener("click", () => {
+  window.location.href = "/api/acesso/pdf";
+});
+
 document.getElementById("btn-sair").addEventListener("click", async () => {
   await req("/api/acesso/sair", { method: "POST", body: "{}" });
   login.classList.remove("hidden");
@@ -145,9 +149,6 @@ async function carregarPainel() {
     ? `<p class="resumo-lista">${aplicacoes.length} aplicação(ões) · ${nPend} prevista(s) · ${nFim} finalizada(s)</p>` +
       aplicacoes
         .map((a) => {
-          const viagem = a.saida_fmt && a.saida_fmt !== "—"
-            ? `Saída ${a.saida_fmt} · retorno ${a.retorno_fmt}`
-            : "";
           const total = a.n_alunos != null && a.n_alunos !== ""
             ? `Total de estudantes: ${a.n_alunos}`
             : "Total de estudantes: não informado";
@@ -157,14 +158,15 @@ async function carregarPainel() {
               : "Presentes: ainda não informado")
             : "";
           return `<article class="app ${a.finalizada ? "feita" : ""}">
-        <span class="chip ${a.finalizada ? "ok" : ""}">${a.finalizada ? "Finalizada" : "Prevista"}</span>
-        <span class="chip ${a.prova_recebida ? "ok" : ""}">${a.prova_recebida ? "Prova: recebida" : "Prova: pendente"}</span>
+        <div class="selos">
+          <span class="chip ${a.finalizada ? "ok" : ""}">${a.finalizada ? "Finalizada" : "Prevista"}</span>
+          <span class="chip ${a.prova_recebida ? "ok" : ""}">${a.prova_recebida ? "Prova: recebida" : "Prova: pendente"}</span>
+        </div>
         <b>${tit(a.escola)}</b>
         <div class="meta">
           ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
           <b>${a.serie}${a.turma ? " — " + a.turma : ""}</b>
           ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
-          ${viagem ? "<br />" + viagem : ""}
           <br /><b>${total}</b>
           ${presentes ? "<br /><b>" + presentes + "</b>" : ""}
           ${!a.prova_recebida && !a.finalizada ? "<br />Aguarde a SRE marcar o recebimento da prova." : ""}
@@ -184,7 +186,7 @@ async function carregarPainel() {
             ? `Pegue a prova específica no bloco de ${a.titular.nome}${a.titular.codigo ? " · " + a.titular.codigo : ""}.`
             : "A turma ainda não tem aplicador titular. A prova sai do bloco dele quando for alocado.";
           return `<article class="app extra">
-        <span class="chip extra">Extra · ciência</span>
+        <div class="selos"><span class="chip extra">Extra · ciência</span></div>
         <b>${tit(a.escola)}</b>
         <div class="meta">
           ${tit(a.municipio)} · ${a.data_fmt} · ${a.turno}<br />
