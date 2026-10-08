@@ -68,7 +68,16 @@ def _situacao(slot: dict) -> str:
     return "Alocado"
 
 
-def _passa_filtro(linha: dict, slot: dict, rede: str, so_vagos: bool, status: str) -> bool:
+def _passa_filtro(
+    linha: dict,
+    slot: dict,
+    rede: str,
+    so_vagos: bool,
+    status: str,
+    escola_id: int | None = None,
+) -> bool:
+    if escola_id and int(linha.get("escola_id") or 0) != int(escola_id):
+        return False
     if rede and rede != "TODAS" and linha.get("rede") != rede:
         return False
     if so_vagos:
@@ -80,7 +89,25 @@ def _passa_filtro(linha: dict, slot: dict, rede: str, so_vagos: bool, status: st
     return True
 
 
-def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False, status: str = "TODAS") -> list[dict]:
+def _nome_escola_filtro(payload: dict, escola_id: int | None) -> str:
+    if not escola_id:
+        return ""
+    alvo = int(escola_id)
+    blocos = payload.get("quadros") if payload.get("todos") else [payload]
+    for bloco in blocos or []:
+        for linha in (bloco or {}).get("linhas") or []:
+            if int(linha.get("escola_id") or 0) == alvo:
+                return str(linha.get("escola") or "").strip()
+    return ""
+
+
+def linhas_do_quadro(
+    payload: dict,
+    rede: str = "TODAS",
+    so_vagos: bool = False,
+    status: str = "TODAS",
+    escola_id: int | None = None,
+) -> list[dict]:
     blocos = payload.get("quadros") if payload.get("todos") else [payload]
     saida = []
     for bloco in blocos or []:
@@ -94,7 +121,7 @@ def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False,
         for linha in bloco.get("linhas") or []:
             for data in datas:
                 for slot in (linha.get("celulas") or {}).get(data) or []:
-                    if not _passa_filtro(linha, slot, rede, so_vagos, status):
+                    if not _passa_filtro(linha, slot, rede, so_vagos, status, escola_id):
                         continue
                     apl = slot.get("aplicador") or {}
                     n_ex = int(slot.get("n_extras") or 0)
@@ -128,8 +155,17 @@ def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False,
     return saida
 
 
-def _rotulo_filtros(municipio_nome: str, rede: str, so_vagos: bool, status: str, total: int) -> str:
+def _rotulo_filtros(
+    municipio_nome: str,
+    rede: str,
+    so_vagos: bool,
+    status: str,
+    total: int,
+    escola_nome: str = "",
+) -> str:
     partes = [f"Município: {municipio_nome or 'Todos'}"]
+    if escola_nome:
+        partes.append(f"Escola: {escola_nome}")
     partes.append(f"Rede: {rede.title() if rede and rede != 'TODAS' else 'Todas'}")
     if so_vagos:
         partes.append("Só vagos")
@@ -179,9 +215,19 @@ def gerar_pdf_quadro(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
+    escola_id: int | None = None,
 ) -> BytesIO:
-    linhas = linhas_do_quadro(payload, rede, so_vagos, status)
-    pdf = _PdfQuadro(_rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas)))
+    linhas = linhas_do_quadro(payload, rede, so_vagos, status, escola_id)
+    pdf = _PdfQuadro(
+        _rotulo_filtros(
+            municipio_nome,
+            rede,
+            so_vagos,
+            status,
+            len(linhas),
+            _nome_escola_filtro(payload, escola_id),
+        )
+    )
     pdf.alias_nb_pages()
     pdf.add_page()
     pdf.set_font("Helvetica", "", 8)
@@ -231,8 +277,10 @@ def gerar_xlsx_quadro(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
+    escola_id: int | None = None,
 ) -> BytesIO:
-    linhas = linhas_do_quadro(payload, rede, so_vagos, status)
+    linhas = linhas_do_quadro(payload, rede, so_vagos, status, escola_id)
+    escola_nome = _nome_escola_filtro(payload, escola_id)
     wb = Workbook()
     ws = wb.active
     ws.title = "Quadro"
@@ -261,7 +309,7 @@ def gerar_xlsx_quadro(
     ws["A1"] = "SAETO SRE Gurupi — Quadro de aplicação"
     ws["A1"].font = Font(bold=True, size=13)
     ws.merge_cells("A2:J2")
-    ws["A2"] = _rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas))
+    ws["A2"] = _rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas), escola_nome)
     ws.append([])
     ws.append(cab)
     for cell in ws[4]:

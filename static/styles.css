@@ -395,6 +395,10 @@ select, input[type="text"] {
   min-width: 220px;
   box-shadow: var(--sunken);
 }
+#sel-escola {
+  min-width: 280px;
+  max-width: 420px;
+}
 .btn {
   border: 0;
   border-radius: 0;

@@ -3,6 +3,7 @@ const state = {
   municipioId: null,
   grupoEscola: "",
   filtroRede: "TODAS",
+  filtroEscola: 0,
   filtroVago: false,
   filtroStatus: "TODAS",
   campoMun: "",
@@ -951,6 +952,9 @@ async function carregarQuadro() {
   $("#view-quadro").innerHTML = `
     <div class="toolbar">
       <select id="sel-mun">${munOpts}</select>
+      <select id="sel-escola">
+        <option value="0">Todas as escolas</option>
+      </select>
       <select id="sel-rede">
         <option value="TODAS">Todas as redes</option>
         <option value="MUNICIPAL">Municipal</option>
@@ -993,7 +997,12 @@ async function carregarQuadro() {
       const opt = e.target.selectedOptions[0];
       state.grupoEscola = opt?.dataset.indigena === "1" ? "cidade" : "";
     }
+    state.filtroEscola = 0;
     pintarQuadro();
+  });
+  $("#sel-escola").addEventListener("change", (e) => {
+    state.filtroEscola = Number(e.target.value) || 0;
+    pintarQuadro(state._ultimoQuadro);
   });
   $("#sel-rede").addEventListener("change", (e) => {
     state.filtroRede = e.target.value;
@@ -1043,6 +1052,7 @@ async function carregarQuadro() {
     const qs = new URLSearchParams();
     if (state.municipioId) qs.set("municipio_id", String(state.municipioId));
     if (state.grupoEscola) qs.set("grupo", state.grupoEscola);
+    if (state.filtroEscola) qs.set("escola_id", String(state.filtroEscola));
     qs.set("rede", state.filtroRede || "TODAS");
     if (state.filtroVago) qs.set("so_vagos", "1");
     qs.set("status", state.filtroStatus || "TODAS");
@@ -1334,8 +1344,44 @@ function ligarPeriodoQuadro() {
   });
 }
 
+function escolasDoQuadro(q) {
+  const mapa = new Map();
+  const blocos = q?.todos ? q.quadros || [] : q ? [q] : [];
+  const mostrarMun = !!q?.todos;
+  for (const bloco of blocos) {
+    const mun = bloco?.municipio?.nome || "";
+    for (const l of bloco?.linhas || []) {
+      const id = Number(l.escola_id);
+      if (!id || mapa.has(id)) continue;
+      mapa.set(id, {
+        id,
+        nome: mostrarMun && mun ? `${tit(l.escola)} — ${tit(mun)}` : tit(l.escola),
+      });
+    }
+  }
+  return [...mapa.values()].sort((a, b) => semAcento(a.nome).localeCompare(semAcento(b.nome), "pt"));
+}
+
+function preencherFiltroEscola(q) {
+  const sel = $("#sel-escola");
+  if (!sel) return;
+  const escolas = escolasDoQuadro(q);
+  const atual = Number(state.filtroEscola) || 0;
+  if (atual && !escolas.some((e) => e.id === atual)) state.filtroEscola = 0;
+  sel.innerHTML = [`<option value="0">Todas as escolas</option>`]
+    .concat(
+      escolas.map(
+        (e) =>
+          `<option value="${e.id}" ${e.id === Number(state.filtroEscola) ? "selected" : ""}>${escHtml(e.nome)}</option>`
+      )
+    )
+    .join("");
+  sel.value = String(state.filtroEscola || 0);
+}
+
 function filtrarLinhasQuadro(q) {
   return (q.linhas || []).filter((l) => {
+    if (state.filtroEscola && Number(l.escola_id) !== Number(state.filtroEscola)) return false;
     if (state.filtroRede !== "TODAS" && l.rede !== state.filtroRede) return false;
     if (state.filtroVago) {
       return q.datas.some((d) => (l.celulas[d] || []).some((s) => s.vago));
@@ -1424,8 +1470,10 @@ async function pintarQuadro(preloaded = null) {
   }
   const q = preloaded ? await preloaded : await api(quadroUrl());
   state._ultimoQuadro = q;
+  preencherFiltroEscola(q);
   if (q.todos) {
     const blocos = (q.quadros || [])
+      .filter((bloco) => !state.filtroEscola || filtrarLinhasQuadro(bloco).length)
       .map((bloco) => `
         <section class="quadro-mun">
           <section class="panel" style="margin-bottom:10px">
@@ -1440,7 +1488,7 @@ async function pintarQuadro(preloaded = null) {
         <h2>Todos os municípios</h2>
         <p style="margin:0;color:var(--ink-soft)">${q.vagas} aplicações · ${q.livres} vagas · ${q.finalizadas || 0} aplicadas · ${q.choques} choques. Para alocar, limpar ou marcar dias, volte a um município no filtro.</p>
       </section>
-      ${blocos || `<section class="panel"><p>Nenhuma aplicação no quadro ainda.</p></section>`}
+      ${blocos || `<section class="panel"><p>${state.filtroEscola ? "Nenhuma aplicação desta escola neste filtro." : "Nenhuma aplicação no quadro ainda."}</p></section>`}
     `;
     ligarCliquesQuadro();
     return;
