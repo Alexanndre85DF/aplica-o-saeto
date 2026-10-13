@@ -13,6 +13,7 @@ from .regras import (
     escola_indigena,
     grupo_escolas,
     serie_par_segundo_ano,
+    sql_rede_visivel,
     turnos_sobrepoem,
 )
 
@@ -256,12 +257,13 @@ def contar_choques(conn) -> int:
     if agora - _CHOQUE_CACHE["em"] < 45:
         return _CHOQUE_CACHE["n"]
     row = conn.execute(
-        """
+        f"""
         SELECT COUNT(DISTINCT v1.id) AS n
         FROM vagas v1
         JOIN escolas e1 ON e1.id = v1.escola_id
         WHERE v1.aplicador_id IS NOT NULL
           AND v1.data IS NOT NULL
+          AND {sql_rede_visivel("e1")}
           AND (
             EXISTS (
                 SELECT 1 FROM vagas v2
@@ -269,6 +271,7 @@ def contar_choques(conn) -> int:
                 WHERE v2.aplicador_id = v1.aplicador_id
                   AND v2.id != v1.id
                   AND v2.data = v1.data
+                  AND {sql_rede_visivel("e2")}
                   AND (v1.turno = v2.turno OR e1.municipio_id != e2.municipio_id)
             )
           )
@@ -387,7 +390,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
         FROM vagas v
         JOIN escolas e ON e.id = v.escola_id
         JOIN municipios m ON m.id = e.municipio_id
-        WHERE v.aplicador_id IS NOT NULL{extra_data}
+        WHERE v.aplicador_id IS NOT NULL AND {sql_rede_visivel("e")}{extra_data}
         """,
         params,
     ):
@@ -401,7 +404,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
             JOIN vagas v ON v.id = x.vaga_id
             JOIN escolas e ON e.id = v.escola_id
             JOIN municipios m ON m.id = e.municipio_id
-            WHERE 1=1{extra_data}
+            WHERE {sql_rede_visivel("e")}{extra_data}
             """,
             params,
         )
@@ -1012,15 +1015,19 @@ def substituir_aplicador(
         return {"ok": False, "erro": "Aplicador não encontrado ou inativo."}
 
     ocupado = conn.execute(
-        """SELECT COUNT(*) AS n FROM vagas
-           WHERE aplicador_id = ? AND data = ? AND id != ?""",
+        f"""SELECT COUNT(*) AS n FROM vagas v
+           JOIN escolas e ON e.id = v.escola_id
+           WHERE v.aplicador_id = ? AND v.data = ? AND v.id != ?
+             AND {sql_rede_visivel("e")}""",
         (novo_aplicador_id, dia, vaga_id),
     ).fetchone()
     extra_dia = conn.execute(
-        """SELECT COUNT(*) AS n
+        f"""SELECT COUNT(*) AS n
            FROM vaga_extras x
            JOIN vagas v ON v.id = x.vaga_id
-           WHERE x.aplicador_id = ? AND v.data = ? AND v.id != ?""",
+           JOIN escolas e ON e.id = v.escola_id
+           WHERE x.aplicador_id = ? AND v.data = ? AND v.id != ?
+             AND {sql_rede_visivel("e")}""",
         (novo_aplicador_id, dia, vaga_id),
     ).fetchone()
     if int((ocupado["n"] if ocupado else 0) or 0) + int((extra_dia["n"] if extra_dia else 0) or 0) > 0:
@@ -1147,7 +1154,7 @@ def _carga_dia(conn, municipio_id: int, dia: str, escola_ids: list[int] | None =
     return conn.execute(
         f"""SELECT COUNT(*) n FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND v.data = ?{frag}""",
+           WHERE e.municipio_id = ? AND v.data = ? AND {sql_rede_visivel("e")}{frag}""",
         (municipio_id, dia, *frag_params),
     ).fetchone()["n"]
 
@@ -1172,7 +1179,7 @@ def escolas_do_grupo(conn, municipio_id: int | None, grupo: str | None) -> list[
     if not pedido:
         return None
     rows = conn.execute(
-        "SELECT id, nome FROM escolas WHERE municipio_id = ?",
+        "SELECT id, nome FROM escolas WHERE municipio_id = ? AND rede <> 'ESTADUAL'",
         (municipio_id,),
     ).fetchall()
     querer_indigena = pedido == "indigena"
@@ -1188,7 +1195,7 @@ def _preencher_datas_faltantes(conn, municipio_id: int, escola_ids: list[int] | 
         f"""SELECT v.*, e.municipio_id
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND (v.data IS NULL OR v.data = ''){frag}
+           WHERE e.municipio_id = ? AND {sql_rede_visivel("e")} AND (v.data IS NULL OR v.data = ''){frag}
            ORDER BY CASE WHEN v.serie LIKE '%DIA 2%' THEN 1 ELSE 0 END, v.id""",
         (municipio_id, *frag_params),
     ).fetchall()
@@ -1218,7 +1225,7 @@ def redistribuir_datas_municipio(
         for r in conn.execute(
             f"""SELECT DISTINCT v.data FROM vagas v
                JOIN escolas e ON e.id = v.escola_id
-               WHERE e.municipio_id = ? AND v.data IS NOT NULL AND v.data != ''{frag}
+               WHERE e.municipio_id = ? AND {sql_rede_visivel("e")} AND v.data IS NOT NULL AND v.data != ''{frag}
                ORDER BY v.data""",
             params,
         )
@@ -1227,7 +1234,7 @@ def redistribuir_datas_municipio(
     vagas = conn.execute(
         f"""SELECT v.id, v.data FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ?{frag}""",
+           WHERE e.municipio_id = ? AND {sql_rede_visivel("e")}{frag}""",
         params,
     ).fetchall()
     if not vagas:
@@ -1245,7 +1252,7 @@ def redistribuir_datas_municipio(
         f"""SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ?{frag}""",
+           WHERE e.municipio_id = ? AND {sql_rede_visivel("e")}{frag}""",
         params,
     ).fetchall()
     for vaga in pares:
@@ -1272,10 +1279,10 @@ def organizar(
     grupo: str | None = None,
 ) -> dict:
     params = []
-    filtro = ""
+    filtro = f" AND {sql_rede_visivel('e')}"
     ids_grupo = escolas_do_grupo(conn, municipio_id, grupo) if municipio_id else None
     if municipio_id:
-        filtro = " AND e.municipio_id = ?"
+        filtro += " AND e.municipio_id = ?"
         params.append(municipio_id)
         frag, frag_params = _filtro_escolas(ids_grupo)
         filtro += frag

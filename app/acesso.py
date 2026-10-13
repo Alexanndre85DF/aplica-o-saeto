@@ -4,7 +4,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from .cadastro import formatar_cpf, normalizar_cpf
-from .regras import fmt_data
+from .regras import fmt_data, sql_rede_visivel
 
 META_PORTAL_APLICADOR = "portal_aplicador_aberto"
 
@@ -107,7 +107,7 @@ def _publico(pessoa) -> dict:
 
 def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
     rows = conn.execute(
-        """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+        f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
                   v.n_presentes, v.prova_recebida_em,
                   e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                   m.nome AS municipio, vi.data_saida, vi.data_retorno
@@ -115,7 +115,7 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
            JOIN escolas e ON e.id = v.escola_id
            JOIN municipios m ON m.id = e.municipio_id
            LEFT JOIN viagens vi ON vi.municipio_id = m.id
-           WHERE v.aplicador_id = ?
+           WHERE v.aplicador_id = ? AND {sql_rede_visivel("e")}
            ORDER BY CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END,
                     v.data, v.turno, e.nome, v.serie""",
         (aplicador_id,),
@@ -135,7 +135,7 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
 def minhas_extras(conn, aplicador_id: int) -> list[dict]:
     try:
         rows = conn.execute(
-            """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+            f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
                       e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                       m.nome AS municipio, vi.data_saida, vi.data_retorno,
                       t.id AS titular_id, t.codigo AS titular_codigo, t.nome AS titular_nome,
@@ -147,7 +147,7 @@ def minhas_extras(conn, aplicador_id: int) -> list[dict]:
                LEFT JOIN viagens vi ON vi.municipio_id = m.id
                LEFT JOIN aplicadores t ON t.id = v.aplicador_id
                LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
-               WHERE x.aplicador_id = ?
+               WHERE x.aplicador_id = ? AND {sql_rede_visivel("e")}
                ORDER BY v.data, v.turno, e.nome, v.serie""",
             (aplicador_id,),
         ).fetchall()

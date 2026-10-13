@@ -122,7 +122,7 @@ def _ocupacoes(conn) -> list[dict]:
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
            JOIN municipios m ON m.id = e.municipio_id
-           WHERE v.aplicador_id IS NOT NULL"""
+           WHERE v.aplicador_id IS NOT NULL AND e.rede <> 'ESTADUAL'"""
     ).fetchall()
     extras = []
     try:
@@ -132,7 +132,8 @@ def _ocupacoes(conn) -> list[dict]:
                FROM vaga_extras x
                JOIN vagas v ON v.id = x.vaga_id
                JOIN escolas e ON e.id = v.escola_id
-               JOIN municipios m ON m.id = e.municipio_id"""
+               JOIN municipios m ON m.id = e.municipio_id
+               WHERE e.rede <> 'ESTADUAL'"""
         ).fetchall()
     except Exception:
         extras = []

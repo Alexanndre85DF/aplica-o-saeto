@@ -10,6 +10,12 @@ REDE_ESTADUAL = "ESTADUAL"
 REDE_CONVENIADA = "CONVENIADA"
 REDES = (REDE_MUNICIPAL, REDE_ESTADUAL, REDE_CONVENIADA)
 
+
+def sql_rede_visivel(alias: str | None = "e") -> str:
+    """Escolas estaduais permanecem no banco e ficam fora das telas."""
+    coluna = "rede" if not alias else f"{alias}.rede"
+    return f"{coluna} <> '{REDE_ESTADUAL}'"
+
 TURNOS = ("MATUTINO", "VESPERTINO", "INTEGRAL", "NOTURNO")
 ANO_CAMPANHA = 2026
 MES_CAMPANHA = 11

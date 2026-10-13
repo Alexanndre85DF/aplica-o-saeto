@@ -958,7 +958,6 @@ async function carregarQuadro() {
       <select id="sel-rede">
         <option value="TODAS">Todas as redes</option>
         <option value="MUNICIPAL">Municipal</option>
-        <option value="ESTADUAL">Estadual</option>
         <option value="CONVENIADA">Conveniada</option>
       </select>
       <label><input type="checkbox" id="so-vagos" /> Só vagos</label>
@@ -1990,7 +1989,7 @@ async function carregarDiarias() {
 }
 
 async function carregarEscolas() {
-  titulo("Escolas", "Rede municipal, estadual e conveniada na SRE Gurupi.");
+  titulo("Escolas", "Rede municipal e conveniada na SRE Gurupi.");
   const lista = await api("/api/escolas");
   $("#view-escolas").innerHTML = `
     <div class="toolbar">

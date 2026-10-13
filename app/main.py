@@ -87,6 +87,7 @@ from .regras import (
     fmt_data,
     grupo_escolas,
     rotulo_municipio,
+    sql_rede_visivel,
 )
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -530,35 +531,41 @@ def _agrupar_resumo_municipios(detalhe: list[dict]) -> list[dict]:
 @app.get("/api/resumo")
 def resumo():
     with get_db() as conn:
+        visivel = sql_rede_visivel("e")
         tot = conn.execute(
-            """SELECT
+            f"""SELECT
                  (SELECT COUNT(DISTINCT e.municipio_id)
-                    FROM escolas e JOIN vagas v ON v.escola_id = e.id) AS municipios,
-                 (SELECT COUNT(*) FROM escolas) AS escolas,
+                    FROM escolas e JOIN vagas v ON v.escola_id = e.id
+                    WHERE {visivel}) AS municipios,
+                 (SELECT COUNT(*) FROM escolas WHERE {sql_rede_visivel(None)}) AS escolas,
                  (SELECT COUNT(*) FROM aplicadores) AS aplicadores,
                  COUNT(*) AS vagas,
-                 COALESCE(SUM(CASE WHEN aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
-                 COALESCE(SUM(CASE WHEN aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
-                 COALESCE(SUM(CASE WHEN status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
-               FROM vagas"""
+                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
+                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                 COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
+               FROM vagas v
+               JOIN escolas e ON e.id = v.escola_id
+               WHERE {visivel}"""
         ).fetchone()
         por_rede = {
             r["rede"]: r["n"]
             for r in conn.execute(
-                """SELECT e.rede, COUNT(*) n FROM vagas v
+                f"""SELECT e.rede, COUNT(*) n FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
+                   WHERE {visivel}
                    GROUP BY e.rede"""
             )
         }
         detalhe = rows_to_dicts(
             conn.execute(
-                """SELECT m.id, m.nome, e.nome AS escola,
+                f"""SELECT m.id, m.nome, e.nome AS escola,
                           COUNT(v.id) AS vagas,
                           COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
                           COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
                    FROM municipios m
                    JOIN escolas e ON e.municipio_id = m.id
                    JOIN vagas v ON v.escola_id = e.id
+                   WHERE {visivel}
                    GROUP BY m.id, m.nome, e.id, e.nome
                    ORDER BY m.nome, e.nome"""
             )
@@ -583,7 +590,7 @@ def resumo():
 @app.get("/api/acompanhamento")
 def acompanhamento(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = []
+        filtro = [sql_rede_visivel("e")]
         params: list = []
         if municipio_id:
             filtro.append("e.municipio_id = ?")
@@ -591,7 +598,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
         if data:
             filtro.append("v.data = ?")
             params.append(data)
-        where = f"WHERE {' AND '.join(filtro)}" if filtro else ""
+        where = f"WHERE {' AND '.join(filtro)}"
         rows = conn.execute(
             f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.finalizado_em,
                       v.turma, v.n_alunos, v.n_presentes,
@@ -642,7 +649,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
 @app.get("/api/recebimento-provas")
 def recebimento_provas(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = ["v.aplicador_id IS NOT NULL"]
+        filtro = ["v.aplicador_id IS NOT NULL", sql_rede_visivel("e")]
         params: list = []
         if municipio_id:
             filtro.append("e.municipio_id = ?")
@@ -704,7 +711,7 @@ def municipios():
                           COALESCE(SUM(CASE WHEN vg.id IS NOT NULL AND vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
-                   LEFT JOIN escolas e ON e.municipio_id = m.id
+                   LEFT JOIN escolas e ON e.municipio_id = m.id AND e.rede <> 'ESTADUAL'
                    LEFT JOIN vagas vg ON vg.escola_id = e.id
                    GROUP BY m.id, m.nome, v.data_saida, v.data_retorno, v.dias_aplicacao
                    ORDER BY m.nome"""
@@ -714,7 +721,9 @@ def municipios():
             row["dias"] = dias_do_municipio(row)
         indigenas = {
             int(r["municipio_id"])
-            for r in conn.execute("SELECT municipio_id, nome FROM escolas")
+            for r in conn.execute(
+                f"SELECT municipio_id, nome FROM escolas WHERE {sql_rede_visivel(None)}"
+            )
             if escola_indigena(r["nome"])
         }
         for row in rows:
@@ -725,11 +734,13 @@ def municipios():
 @app.get("/api/escolas")
 def escolas(municipio_id: int | None = None):
     with get_db() as conn:
-        filtro = ""
-        params: tuple = ()
+        conds = [sql_rede_visivel("e")]
+        params_esc: list = []
         if municipio_id:
-            filtro = " WHERE e.municipio_id = ?"
-            params = (municipio_id,)
+            conds.append("e.municipio_id = ?")
+            params_esc.append(municipio_id)
+        filtro = " WHERE " + " AND ".join(conds)
+        params = tuple(params_esc)
         return rows_to_dicts(
             conn.execute(
                 f"""SELECT e.*, m.nome AS municipio,
@@ -778,7 +789,7 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                    FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
                    JOIN municipios m ON m.id = e.municipio_id
-                   WHERE v.aplicador_id IS NOT NULL
+                   WHERE v.aplicador_id IS NOT NULL AND e.rede <> 'ESTADUAL'
                    ORDER BY v.data, v.turno, e.nome"""
             )
         ):
@@ -792,6 +803,7 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                        JOIN vagas v ON v.id = x.vaga_id
                        JOIN escolas e ON e.id = v.escola_id
                        JOIN municipios m ON m.id = e.municipio_id
+                       WHERE e.rede <> 'ESTADUAL'
                        ORDER BY v.data, v.turno, e.nome"""
                 )
             ):
@@ -1015,7 +1027,7 @@ SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
        e.rede, e.rural, e.municipio_id,
        a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome
 FROM vagas v
-JOIN escolas e ON e.id = v.escola_id
+JOIN escolas e ON e.id = v.escola_id AND e.rede <> 'ESTADUAL'
 LEFT JOIN aplicadores a ON a.id = v.aplicador_id
 """
 
@@ -1434,14 +1446,20 @@ def api_limpar(body: LimparBody):
             conn.execute(
                 f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
                    WHERE escola_id IN (
-                     SELECT e.id FROM escolas e WHERE e.municipio_id = ?{frag}
+                     SELECT e.id FROM escolas e
+                     WHERE e.municipio_id = ? AND {sql_rede_visivel("e")}{frag}
                    )""",
                 (body.municipio_id, *frag_params),
             )
         else:
-            conn.execute("UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL")
+            conn.execute(
+                f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
+                   WHERE escola_id IN (SELECT id FROM escolas WHERE {sql_rede_visivel(None)})"""
+            )
         livres = conn.execute(
-            "SELECT COUNT(*) n FROM vagas WHERE aplicador_id IS NULL"
+            f"""SELECT COUNT(*) n FROM vagas v
+               JOIN escolas e ON e.id = v.escola_id
+               WHERE v.aplicador_id IS NULL AND {sql_rede_visivel("e")}"""
         ).fetchone()["n"]
         return {"ok": True, "livres": livres}
 

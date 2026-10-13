@@ -7,6 +7,8 @@ from datetime import date, timedelta
 
 from .regras import (
     REDES,
+    REDE_ESTADUAL,
+    sql_rede_visivel,
     TURNOS,
     dias_do_municipio,
     eh_segundo_ano_dia1,
@@ -30,7 +32,8 @@ SERIES_PADRAO = [
 
 
 def opcoes() -> dict:
-    return {"redes": list(REDES), "turnos": list(TURNOS), "series": SERIES_PADRAO}
+    redes = [r for r in REDES if r != REDE_ESTADUAL]
+    return {"redes": redes, "turnos": list(TURNOS), "series": SERIES_PADRAO}
 
 
 def _data_iso(valor: str | None) -> str | None:
@@ -180,8 +183,10 @@ def criar_municipio(conn, nome: str, data_saida=None, data_retorno=None, dias=No
 def _limpar_datas_vagas_municipio(conn, municipio_id: int, escola_ids: list[int] | None = None) -> None:
     if escola_ids is None:
         conn.execute(
-            """UPDATE vagas SET data = NULL
-               WHERE escola_id IN (SELECT id FROM escolas WHERE municipio_id = ?)""",
+            f"""UPDATE vagas SET data = NULL
+               WHERE escola_id IN (
+                 SELECT id FROM escolas WHERE municipio_id = ? AND {sql_rede_visivel(None)}
+               )""",
             (municipio_id,),
         )
         return
