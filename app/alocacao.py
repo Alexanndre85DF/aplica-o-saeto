@@ -471,7 +471,7 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
         ph = ",".join("?" * len(ids))
         try:
             rows = conn.execute(
-                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, x.aluno_id,
+                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, a.cpf, x.aluno_id,
                            al.nome AS aluno_nome
                     FROM vaga_extras x
                     JOIN aplicadores a ON a.id = x.aplicador_id
@@ -484,7 +484,7 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             rows = []
             try:
                 rows = conn.execute(
-                    f"""SELECT x.vaga_id, a.id, a.codigo, a.nome
+                    f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, a.cpf
                         FROM vaga_extras x
                         JOIN aplicadores a ON a.id = x.aplicador_id
                         WHERE x.vaga_id IN ({ph})
@@ -494,7 +494,12 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             except Exception:
                 rows = []
         for r in rows:
-            item = {"id": r["id"], "codigo": r["codigo"], "nome": r["nome"] or r["codigo"]}
+            item = {
+                "id": r["id"],
+                "codigo": r["codigo"],
+                "nome": r["nome"] or r["codigo"],
+                "cpf": r["cpf"] if "cpf" in r.keys() else "",
+            }
             try:
                 item["aluno_id"] = r["aluno_id"]
                 item["aluno_nome"] = r["aluno_nome"]

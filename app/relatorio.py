@@ -9,18 +9,22 @@ from fpdf import FPDF
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from .cadastro import formatar_cpf
 from .regras import fmt_data, rotulo_municipio
 
 COLS = [
-    (48, "Município"),
-    (64, "Escola"),
-    (18, "Rede"),
-    (22, "Turno"),
-    (22, "Data"),
-    (34, "Série / turma"),
-    (42, "Aplicador"),
-    (14, "Extra"),
-    (13, "Situação"),
+    (22, "Município"),
+    (44, "Escola"),
+    (16, "Rede"),
+    (16, "Turno"),
+    (18, "Data"),
+    (28, "Série / turma"),
+    (35, "Aplicador"),
+    (22, "CPF aplicador"),
+    (28, "Aplicador extra"),
+    (22, "CPF extra"),
+    (12, "Extra"),
+    (14, "Situação"),
 ]
 
 
@@ -128,6 +132,7 @@ def linhas_do_quadro(
                     serie = slot.get("serie") or ""
                     turma = slot.get("turma") or ""
                     nomes_extra = []
+                    cpfs_extra = []
                     vistos = set()
                     for extra in slot.get("extras") or []:
                         nome = (extra.get("nome") or extra.get("codigo") or "").strip()
@@ -136,6 +141,7 @@ def linhas_do_quadro(
                             continue
                         vistos.add(chave)
                         nomes_extra.append(nome)
+                        cpfs_extra.append(formatar_cpf(extra.get("cpf")) or "-")
                     saida.append(
                         {
                             "municipio": mun,
@@ -146,7 +152,9 @@ def linhas_do_quadro(
                             "data_ord": data or "9999-99-99",
                             "serie": f"{serie} - {turma}".strip(" -") if turma else serie,
                             "aplicador": apl.get("nome") or apl.get("codigo") or "Sem aplicador",
+                            "cpf_aplicador": formatar_cpf(apl.get("cpf")) or "-",
                             "aplicador_extra": ", ".join(nomes_extra) if nomes_extra else "-",
+                            "cpf_extra": ", ".join(cpfs_extra) if cpfs_extra else "-",
                             "extra": f"{slot.get('extras_preenchidos') or 0}/{n_ex}" if n_ex else "-",
                             "situacao": _situacao(slot),
                         }
@@ -193,11 +201,11 @@ class _PdfQuadro(FPDF):
         self.set_font("Helvetica", "", 8)
         self.cell(0, 5, _txt(self.filtros), ln=True)
         self.ln(1)
-        self.set_font("Helvetica", "B", 8)
+        self.set_font("Helvetica", "B", 7)
         self.set_fill_color(0, 0, 128)
         self.set_text_color(255, 255, 255)
         for largura, titulo in COLS:
-            self.cell(largura, 6, _txt(titulo), border=1, fill=True)
+            self.cell(largura, 6, _caber(self, titulo, largura), border=1, fill=True, align="C")
         self.ln()
         self.set_text_color(0, 0, 0)
 
@@ -230,7 +238,7 @@ def gerar_pdf_quadro(
     )
     pdf.alias_nb_pages()
     pdf.add_page()
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font("Helvetica", "", 7)
     if not linhas:
         pdf.cell(0, 8, _txt("Nenhuma aplicação neste filtro."), ln=True)
     zebra = False
@@ -244,6 +252,9 @@ def gerar_pdf_quadro(
             row["data"],
             row["serie"],
             row["aplicador"],
+            row.get("cpf_aplicador") or "-",
+            row.get("aplicador_extra") or "-",
+            row.get("cpf_extra") or "-",
             row["extra"],
             row["situacao"],
         ]
@@ -446,7 +457,9 @@ def gerar_xlsx_quadro(
         "Data",
         "Série / turma",
         "Aplicador",
+        "CPF do aplicador",
         "Aplicador extra",
+        "CPF do aplicador extra",
         "Extra",
         "Situação",
     ]
@@ -459,10 +472,10 @@ def gerar_xlsx_quadro(
     fundo_cab = PatternFill("solid", fgColor="000080")
     fundo_zebra = PatternFill("solid", fgColor="ECECF5")
     fonte_cab = Font(bold=True, color="FFFFFF")
-    ws.merge_cells("A1:J1")
+    ws.merge_cells("A1:L1")
     ws["A1"] = "SAETO SRE Gurupi — Quadro de aplicação"
     ws["A1"].font = Font(bold=True, size=13)
-    ws.merge_cells("A2:J2")
+    ws.merge_cells("A2:L2")
     ws["A2"] = _rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas), escola_nome)
     ws.append([])
     ws.append(cab)
@@ -481,7 +494,9 @@ def gerar_xlsx_quadro(
                 row["data"],
                 row["serie"],
                 row["aplicador"],
+                row.get("cpf_aplicador") or "-",
                 row.get("aplicador_extra") or "-",
+                row.get("cpf_extra") or "-",
                 row["extra"],
                 row["situacao"],
             ]
@@ -499,10 +514,12 @@ def gerar_xlsx_quadro(
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 28
     ws.column_dimensions["G"].width = 32
-    ws.column_dimensions["H"].width = 36
-    ws.column_dimensions["I"].width = 10
-    ws.column_dimensions["J"].width = 12
-    ws.auto_filter.ref = f"A4:J{max(4, ws.max_row)}"
+    ws.column_dimensions["H"].width = 18
+    ws.column_dimensions["I"].width = 36
+    ws.column_dimensions["J"].width = 22
+    ws.column_dimensions["K"].width = 10
+    ws.column_dimensions["L"].width = 12
+    ws.auto_filter.ref = f"A4:L{max(4, ws.max_row)}"
     ws.freeze_panes = "A5"
     bio = BytesIO()
     wb.save(bio)

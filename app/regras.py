@@ -72,11 +72,17 @@ def normalizar_turno(valor) -> str:
     return mapa.get(texto, texto or "MATUTINO")
 
 
+def tratar_como_estadual(nome_escola: str) -> bool:
+    """Tecelagem e Dom Bosco entraram como conveniada, mas são estaduais."""
+    nome = sem_acento(nome_escola).upper()
+    return "TECELAGEM" in nome or "DOM BOSCO" in nome
+
+
 def inferir_rede(nome_escola: str) -> str:
     nome = normalizar_texto(nome_escola).upper()
     if "MUNICIPAL" in nome or re.search(r"\bMUN\b", nome):
         return REDE_MUNICIPAL
-    if "ESTADUAL" in nome or "MILITAR" in nome:
+    if "ESTADUAL" in nome or "MILITAR" in nome or tratar_como_estadual(nome):
         return REDE_ESTADUAL
     return REDE_CONVENIADA
 

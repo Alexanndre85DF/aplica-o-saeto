@@ -1025,7 +1025,7 @@ def api_excluir_vaga(vaga_id: int):
 _SQL_VAGAS_QUADRO = """
 SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
        e.rede, e.rural, e.municipio_id,
-       a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome
+       a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome, a.cpf AS apl_cpf
 FROM vagas v
 JOIN escolas e ON e.id = v.escola_id AND e.rede <> 'ESTADUAL'
 LEFT JOIN aplicadores a ON a.id = v.aplicador_id
@@ -1051,6 +1051,7 @@ def _celula_quadro(d: dict) -> dict:
             "id": d["apl_id"],
             "codigo": d["apl_codigo"],
             "nome": d["apl_nome"] or d["apl_codigo"],
+            "cpf": d.get("apl_cpf") or "",
         },
         "n_extras": d.get("n_extras") or 0,
         "extras_preenchidos": d.get("extras_preenchidos") or 0,
@@ -1065,6 +1066,7 @@ def _celula_quadro(d: dict) -> dict:
                 "id": e.get("id"),
                 "nome": e.get("nome") or e.get("codigo"),
                 "codigo": e.get("codigo"),
+                "cpf": e.get("cpf") or "",
             }
             for e in (d.get("extras") or [])
         ],
