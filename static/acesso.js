@@ -123,6 +123,25 @@ document.getElementById("form-presentes").addEventListener("submit", async (ev) 
 
 let abaAtual = "aplicar";
 
+function htmlExtrasDaTurma(aplicacao) {
+  const lista = aplicacao.extras || [];
+  if (!lista.length) {
+    if (aplicacao.n_extras) {
+      return "<br />Nenhum aplicador extra vinculado aos especiais desta turma.";
+    }
+    return "";
+  }
+  const itens = lista
+    .map((extra) => {
+      const aluno = extra.aluno_nome
+        ? ` — ${tit(extra.aluno_nome)}${extra.aluno_necessidade ? " (" + tit(extra.aluno_necessidade) + ")" : ""}`
+        : "";
+      return `<li>${tit(extra.nome)}${aluno}</li>`;
+    })
+    .join("");
+  return `<br /><b>Aplicadores extras dos especiais</b><ul class="extras-turma">${itens}</ul>`;
+}
+
 async function carregarPainel() {
   const dados = await req("/api/acesso/eu");
   login.classList.add("hidden");
@@ -168,6 +187,7 @@ async function carregarPainel() {
           <b>${a.serie}${a.turma ? " — " + a.turma : ""}</b>
           ${a.rede ? "<br />" + a.rede.toLowerCase() : ""}
           <br /><b>${total}</b>
+          ${htmlExtrasDaTurma(a)}
           ${presentes ? "<br /><b>" + presentes + "</b>" : ""}
           ${!a.prova_recebida && !a.finalizada ? "<br />Aguarde a SRE marcar o recebimento da prova." : ""}
         </div>

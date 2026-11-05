@@ -175,6 +175,8 @@ button.ghost {
 .selos { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .app b { display: block; font-size: 16px; overflow-wrap: anywhere; }
 .app .meta { color: var(--soft); font-size: 13px; margin: 6px 0 12px; overflow-wrap: anywhere; }
+.extras-turma { margin: 4px 0 0; padding-left: 18px; }
+.extras-turma li { margin: 2px 0; }
 .chip {
   display: inline-block;
   border-radius: 0;

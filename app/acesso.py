@@ -105,9 +105,39 @@ def _publico(pessoa) -> dict:
     }
 
 
+def _extras_das_turmas(conn, vaga_ids: list[int]) -> dict[int, list[dict]]:
+    if not vaga_ids:
+        return {}
+    marcas = ", ".join("?" for _ in vaga_ids)
+    try:
+        rows = conn.execute(
+            f"""SELECT x.vaga_id, a.nome, a.codigo,
+                       al.nome AS aluno_nome, al.necessidade AS aluno_necessidade
+                FROM vaga_extras x
+                JOIN aplicadores a ON a.id = x.aplicador_id
+                LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
+                WHERE x.vaga_id IN ({marcas})
+                ORDER BY a.nome, al.nome""",
+            tuple(vaga_ids),
+        ).fetchall()
+    except Exception:
+        return {}
+    por: dict[int, list[dict]] = {}
+    for r in rows:
+        por.setdefault(int(r["vaga_id"]), []).append(
+            {
+                "nome": r["nome"] or r["codigo"],
+                "codigo": r["codigo"],
+                "aluno_nome": r["aluno_nome"],
+                "aluno_necessidade": r["aluno_necessidade"],
+            }
+        )
+    return por
+
+
 def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
     rows = conn.execute(
-        f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+        f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos, v.n_extras,
                   v.n_presentes, v.prova_recebida_em,
                   e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                   m.nome AS municipio, vi.data_saida, vi.data_retorno
@@ -128,7 +158,11 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
         item["retorno_fmt"] = fmt_data(item["data_retorno"])
         item["finalizada"] = item["status"] == "FINALIZADA"
         item["prova_recebida"] = bool(item.get("prova_recebida_em"))
+        item["extras"] = []
         lista.append(item)
+    por_extra = _extras_das_turmas(conn, [int(item["id"]) for item in lista])
+    for item in lista:
+        item["extras"] = por_extra.get(int(item["id"]), [])
     return lista
 
 

@@ -282,14 +282,15 @@ def nome_arquivo_xlsx(municipio_nome: str) -> str:
 
 
 _COLS_ACESSO_AP = [
-    (24, "Data"),
-    (38, "Município"),
-    (72, "Escola"),
-    (28, "Turno"),
-    (46, "Série / turma"),
-    (24, "Estudantes"),
-    (22, "Situação"),
-    (23, "Prova"),
+    (22, "Data"),
+    (32, "Município"),
+    (48, "Escola"),
+    (22, "Turno"),
+    (34, "Série / turma"),
+    (20, "Estudantes"),
+    (48, "Extras dos especiais"),
+    (20, "Situação"),
+    (31, "Prova"),
 ]
 _COLS_ACESSO_EX = [
     (24, "Data"),
@@ -306,6 +307,21 @@ def _serie_turma(item: dict) -> str:
     serie = item.get("serie") or ""
     turma = item.get("turma") or ""
     return f"{serie} - {turma}".strip(" -") if turma else serie
+
+
+def _extras_acesso(item: dict) -> str:
+    extras = item.get("extras") or []
+    if not extras:
+        return "-"
+    partes = []
+    for extra in extras:
+        nome = (extra.get("nome") or extra.get("codigo") or "").strip()
+        aluno = (extra.get("aluno_nome") or "").strip()
+        if nome and aluno:
+            partes.append(f"{nome} ({aluno})")
+        elif nome:
+            partes.append(nome)
+    return "; ".join(partes) or "-"
 
 
 def _estudantes_acesso(item: dict) -> str:
@@ -407,6 +423,7 @@ def gerar_pdf_acesso(
                     item.get("turno") or "",
                     _serie_turma(item),
                     _estudantes_acesso(item),
+                    _extras_acesso(item),
                     "Finalizada" if item.get("finalizada") else "Prevista",
                     "Recebida" if item.get("prova_recebida") else "Pendente",
                 ],
