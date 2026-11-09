@@ -96,7 +96,7 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
            JOIN escolas e ON e.id = v.escola_id
            JOIN municipios m ON m.id = e.municipio_id
            LEFT JOIN viagens vi ON vi.municipio_id = m.id
-           WHERE v.aplicador_id = ?
+           WHERE v.aplicador_id = ? AND e.rede = 'MUNICIPAL'
            ORDER BY CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END,
                     v.data, v.turno, e.nome, v.serie""",
         (aplicador_id,),
@@ -128,7 +128,7 @@ def minhas_extras(conn, aplicador_id: int) -> list[dict]:
                LEFT JOIN viagens vi ON vi.municipio_id = m.id
                LEFT JOIN aplicadores t ON t.id = v.aplicador_id
                LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
-               WHERE x.aplicador_id = ?
+               WHERE x.aplicador_id = ? AND e.rede = 'MUNICIPAL'
                ORDER BY v.data, v.turno, e.nome, v.serie""",
             (aplicador_id,),
         ).fetchall()

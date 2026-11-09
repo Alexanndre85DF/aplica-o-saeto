@@ -1,7 +1,7 @@
 const state = {
   view: "resumo",
   municipioId: null,
-  filtroRede: "TODAS",
+  filtroRede: "MUNICIPAL",
   filtroVago: false,
   filtroStatus: "TODAS",
   campoMun: "",
@@ -894,12 +894,6 @@ async function carregarQuadro() {
   $("#view-quadro").innerHTML = `
     <div class="toolbar">
       <select id="sel-mun">${munOpts}</select>
-      <select id="sel-rede">
-        <option value="TODAS">Todas as redes</option>
-        <option value="MUNICIPAL">Municipal</option>
-        <option value="ESTADUAL">Estadual</option>
-        <option value="CONVENIADA">Conveniada</option>
-      </select>
       <label><input type="checkbox" id="so-vagos" /> Só vagos</label>
       <select id="sel-status">
         <option value="TODAS">Todas as situações</option>
@@ -923,16 +917,11 @@ async function carregarQuadro() {
     <div id="painel-alocar"></div>
     <div id="quadro-corpo"></div>
   `;
-  $("#sel-rede").value = state.filtroRede;
   $("#so-vagos").checked = state.filtroVago;
   $("#sel-status").value = state.filtroStatus;
   $("#sel-mun").addEventListener("change", (e) => {
     state.municipioId = Number(e.target.value) || 0;
     pintarQuadro();
-  });
-  $("#sel-rede").addEventListener("change", (e) => {
-    state.filtroRede = e.target.value;
-    pintarQuadro(state._ultimoQuadro);
   });
   $("#so-vagos").addEventListener("change", (e) => {
     state.filtroVago = e.target.checked;
@@ -1840,7 +1829,7 @@ async function carregarDiarias() {
 }
 
 async function carregarEscolas() {
-  titulo("Escolas", "Rede municipal, estadual e conveniada na SRE Gurupi.");
+  titulo("Escolas", "Só a rede municipal. Escola estadual fica de fora.");
   const lista = await api("/api/escolas");
   $("#view-escolas").innerHTML = `
     <div class="toolbar">
@@ -2109,9 +2098,6 @@ async function carregarCadastro() {
           </label>
           <label class="campo">Nome <input name="nome" required placeholder="Nome da escola" /></label>
           <label class="campo">Código INEP <input name="codigo" placeholder="Opcional" /></label>
-          <label class="campo">Rede
-            <select name="rede">${opcoes.redes.map((r) => `<option>${r}</option>`).join("")}</select>
-          </label>
           <label class="check-inline"><input type="checkbox" name="rural" /> Escola rural</label>
           <button class="btn" type="submit">Cadastrar</button>
         </form>
@@ -2141,7 +2127,7 @@ async function carregarCadastro() {
             municipio_id: Number(f.municipio_id.value),
             nome: f.nome.value,
             codigo: f.codigo.value || null,
-            rede: f.rede.value,
+            rede: "MUNICIPAL",
             rural: f.rural.checked,
           }),
         });

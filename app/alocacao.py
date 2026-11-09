@@ -1113,7 +1113,7 @@ def _carga_dia(conn, municipio_id: int, dia: str) -> int:
     return conn.execute(
         """SELECT COUNT(*) n FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND v.data = ?""",
+           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL' AND v.data = ?""",
         (municipio_id, dia),
     ).fetchone()["n"]
 
@@ -1126,7 +1126,7 @@ def _preencher_datas_faltantes(conn, municipio_id: int) -> None:
         """SELECT v.*, e.municipio_id
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND (v.data IS NULL OR v.data = '')
+           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL' AND (v.data IS NULL OR v.data = '')
            ORDER BY CASE WHEN v.serie LIKE '%DIA 2%' THEN 1 ELSE 0 END, v.id""",
         (municipio_id,),
     ).fetchall()
@@ -1152,7 +1152,7 @@ def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
         for r in conn.execute(
             """SELECT DISTINCT v.data FROM vagas v
                JOIN escolas e ON e.id = v.escola_id
-               WHERE e.municipio_id = ? AND v.data IS NOT NULL AND v.data != ''
+               WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL' AND v.data IS NOT NULL AND v.data != ''
                ORDER BY v.data""",
             (municipio_id,),
         )
@@ -1161,7 +1161,7 @@ def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
     vagas = conn.execute(
         """SELECT v.id, v.data FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ?""",
+           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL'""",
         (municipio_id,),
     ).fetchall()
     if not vagas:
@@ -1179,7 +1179,7 @@ def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
         """SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ?""",
+           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL'""",
         (municipio_id,),
     ).fetchall()
     for vaga in pares:
@@ -1205,9 +1205,9 @@ def organizar(
     nova_rodada: bool = False,
 ) -> dict:
     params = []
-    filtro = ""
+    filtro = " AND e.rede = 'MUNICIPAL'"
     if municipio_id:
-        filtro = " AND e.municipio_id = ?"
+        filtro += " AND e.municipio_id = ?"
         params.append(municipio_id)
 
     if reset:

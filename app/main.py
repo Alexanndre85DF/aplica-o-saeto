@@ -400,20 +400,24 @@ def resumo():
         tot = conn.execute(
             """SELECT
                  (SELECT COUNT(DISTINCT e.municipio_id)
-                    FROM escolas e JOIN vagas v ON v.escola_id = e.id) AS municipios,
-                 (SELECT COUNT(*) FROM escolas) AS escolas,
+                    FROM escolas e JOIN vagas v ON v.escola_id = e.id
+                    WHERE e.rede = 'MUNICIPAL') AS municipios,
+                 (SELECT COUNT(*) FROM escolas WHERE rede = 'MUNICIPAL') AS escolas,
                  (SELECT COUNT(*) FROM aplicadores) AS aplicadores,
                  COUNT(*) AS vagas,
-                 COALESCE(SUM(CASE WHEN aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
-                 COALESCE(SUM(CASE WHEN aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
-                 COALESCE(SUM(CASE WHEN status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
-               FROM vagas"""
+                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
+                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                 COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
+               FROM vagas v
+               JOIN escolas e ON e.id = v.escola_id
+               WHERE e.rede = 'MUNICIPAL'"""
         ).fetchone()
         por_rede = {
             r["rede"]: r["n"]
             for r in conn.execute(
                 """SELECT e.rede, COUNT(*) n FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
+                   WHERE e.rede = 'MUNICIPAL'
                    GROUP BY e.rede"""
             )
         }
@@ -424,7 +428,7 @@ def resumo():
                           COALESCE(SUM(CASE WHEN v.id IS NOT NULL AND v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
                           COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
                    FROM municipios m
-                   JOIN escolas e ON e.municipio_id = m.id
+                   JOIN escolas e ON e.municipio_id = m.id AND e.rede = 'MUNICIPAL'
                    JOIN vagas v ON v.escola_id = e.id
                    GROUP BY m.id, m.nome
                    ORDER BY m.nome"""
@@ -449,7 +453,7 @@ def resumo():
 @app.get("/api/acompanhamento")
 def acompanhamento(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = []
+        filtro = ["e.rede = 'MUNICIPAL'"]
         params: list = []
         if municipio_id:
             filtro.append("e.municipio_id = ?")
@@ -457,7 +461,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
         if data:
             filtro.append("v.data = ?")
             params.append(data)
-        where = f"WHERE {' AND '.join(filtro)}" if filtro else ""
+        where = f"WHERE {' AND '.join(filtro)}"
         rows = conn.execute(
             f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.finalizado_em,
                       v.turma, v.n_alunos, v.n_presentes,
@@ -508,7 +512,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
 @app.get("/api/recebimento-provas")
 def recebimento_provas(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = ["v.aplicador_id IS NOT NULL"]
+        filtro = ["v.aplicador_id IS NOT NULL", "e.rede = 'MUNICIPAL'"]
         params: list = []
         if municipio_id:
             filtro.append("e.municipio_id = ?")
@@ -570,7 +574,7 @@ def municipios():
                           COALESCE(SUM(CASE WHEN vg.id IS NOT NULL AND vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
-                   LEFT JOIN escolas e ON e.municipio_id = m.id
+                   LEFT JOIN escolas e ON e.municipio_id = m.id AND e.rede = 'MUNICIPAL'
                    LEFT JOIN vagas vg ON vg.escola_id = e.id
                    GROUP BY m.id, m.nome, v.data_saida, v.data_retorno, v.dias_aplicacao
                    ORDER BY m.nome"""
@@ -584,10 +588,10 @@ def municipios():
 @app.get("/api/escolas")
 def escolas(municipio_id: int | None = None):
     with get_db() as conn:
-        filtro = ""
+        filtro = " WHERE e.rede = 'MUNICIPAL'"
         params: tuple = ()
         if municipio_id:
-            filtro = " WHERE e.municipio_id = ?"
+            filtro += " AND e.municipio_id = ?"
             params = (municipio_id,)
         return rows_to_dicts(
             conn.execute(
@@ -637,7 +641,7 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                    FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
                    JOIN municipios m ON m.id = e.municipio_id
-                   WHERE v.aplicador_id IS NOT NULL
+                   WHERE v.aplicador_id IS NOT NULL AND e.rede = 'MUNICIPAL'
                    ORDER BY v.data, v.turno, e.nome"""
             )
         ):
@@ -651,6 +655,7 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                        JOIN vagas v ON v.id = x.vaga_id
                        JOIN escolas e ON e.id = v.escola_id
                        JOIN municipios m ON m.id = e.municipio_id
+                       WHERE e.rede = 'MUNICIPAL'
                        ORDER BY v.data, v.turno, e.nome"""
                 )
             ):
@@ -974,7 +979,7 @@ def quadro(municipio_id: int | None = None):
             if not mun:
                 raise HTTPException(404, "Município não encontrado.")
             vagas = conn.execute(
-                _SQL_VAGAS_QUADRO + " WHERE e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
+                _SQL_VAGAS_QUADRO + " WHERE e.rede = 'MUNICIPAL' AND e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
                 (municipio_id,),
             ).fetchall()
             datas_vagas = {r["data"] for r in vagas if r["data"]}
@@ -989,7 +994,7 @@ def quadro(municipio_id: int | None = None):
                ORDER BY m.nome"""
         ).fetchall()
         vagas = conn.execute(
-            _SQL_VAGAS_QUADRO + " ORDER BY e.municipio_id, e.nome, v.turno, v.data, v.serie"
+            _SQL_VAGAS_QUADRO + " WHERE e.rede = 'MUNICIPAL' ORDER BY e.municipio_id, e.nome, v.turno, v.data, v.serie"
         ).fetchall()
         datas_vagas = {r["data"] for r in vagas if r["data"]}
         agenda = _agenda_ocupadas(conn, datas_vagas or None)
