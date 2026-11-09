@@ -4,26 +4,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from .cadastro import formatar_cpf, normalizar_cpf
-from .regras import fmt_data, sql_rede_visivel
-
-META_PORTAL_APLICADOR = "portal_aplicador_aberto"
-
-
-def portal_aplicador_aberto(conn) -> bool:
-    row = conn.execute(
-        "SELECT valor FROM meta WHERE chave = ?", (META_PORTAL_APLICADOR,)
-    ).fetchone()
-    if not row or row["valor"] in (None, ""):
-        return False
-    return str(row["valor"]) == "1"
-
-
-def definir_portal_aplicador(conn, aberto: bool) -> bool:
-    conn.execute(
-        "INSERT OR REPLACE INTO meta(chave, valor) VALUES (?, ?)",
-        (META_PORTAL_APLICADOR, "1" if aberto else "0"),
-    )
-    return bool(aberto)
+from .regras import fmt_data
 
 
 def garantir_token_acesso(conn, aplicador_id: int) -> str:
@@ -105,39 +86,9 @@ def _publico(pessoa) -> dict:
     }
 
 
-def _extras_das_turmas(conn, vaga_ids: list[int]) -> dict[int, list[dict]]:
-    if not vaga_ids:
-        return {}
-    marcas = ", ".join("?" for _ in vaga_ids)
-    try:
-        rows = conn.execute(
-            f"""SELECT x.vaga_id, a.nome, a.codigo,
-                       al.nome AS aluno_nome, al.necessidade AS aluno_necessidade
-                FROM vaga_extras x
-                JOIN aplicadores a ON a.id = x.aplicador_id
-                LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
-                WHERE x.vaga_id IN ({marcas})
-                ORDER BY a.nome, al.nome""",
-            tuple(vaga_ids),
-        ).fetchall()
-    except Exception:
-        return {}
-    por: dict[int, list[dict]] = {}
-    for r in rows:
-        por.setdefault(int(r["vaga_id"]), []).append(
-            {
-                "nome": r["nome"] or r["codigo"],
-                "codigo": r["codigo"],
-                "aluno_nome": r["aluno_nome"],
-                "aluno_necessidade": r["aluno_necessidade"],
-            }
-        )
-    return por
-
-
 def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
     rows = conn.execute(
-        f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos, v.n_extras,
+        """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
                   v.n_presentes, v.prova_recebida_em,
                   e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                   m.nome AS municipio, vi.data_saida, vi.data_retorno
@@ -145,7 +96,7 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
            JOIN escolas e ON e.id = v.escola_id
            JOIN municipios m ON m.id = e.municipio_id
            LEFT JOIN viagens vi ON vi.municipio_id = m.id
-           WHERE v.aplicador_id = ? AND {sql_rede_visivel("e")}
+           WHERE v.aplicador_id = ?
            ORDER BY CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END,
                     v.data, v.turno, e.nome, v.serie""",
         (aplicador_id,),
@@ -158,18 +109,14 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
         item["retorno_fmt"] = fmt_data(item["data_retorno"])
         item["finalizada"] = item["status"] == "FINALIZADA"
         item["prova_recebida"] = bool(item.get("prova_recebida_em"))
-        item["extras"] = []
         lista.append(item)
-    por_extra = _extras_das_turmas(conn, [int(item["id"]) for item in lista])
-    for item in lista:
-        item["extras"] = por_extra.get(int(item["id"]), [])
     return lista
 
 
 def minhas_extras(conn, aplicador_id: int) -> list[dict]:
     try:
         rows = conn.execute(
-            f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+            """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
                       e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                       m.nome AS municipio, vi.data_saida, vi.data_retorno,
                       t.id AS titular_id, t.codigo AS titular_codigo, t.nome AS titular_nome,
@@ -181,7 +128,7 @@ def minhas_extras(conn, aplicador_id: int) -> list[dict]:
                LEFT JOIN viagens vi ON vi.municipio_id = m.id
                LEFT JOIN aplicadores t ON t.id = v.aplicador_id
                LEFT JOIN alunos_especiais al ON al.id = x.aluno_id
-               WHERE x.aplicador_id = ? AND {sql_rede_visivel("e")}
+               WHERE x.aplicador_id = ?
                ORDER BY v.data, v.turno, e.nome, v.serie""",
             (aplicador_id,),
         ).fetchall()

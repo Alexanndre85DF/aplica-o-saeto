@@ -5,19 +5,17 @@ from pathlib import Path
 
 from fastapi import Cookie, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .acesso import (
     aplicador_da_sessao,
-    definir_portal_aplicador,
     encerrar_sessao,
     entrar_por_cpf,
     garantir_token_acesso,
     minhas_aplicacoes,
     minhas_extras,
-    portal_aplicador_aberto,
 )
 from .admin_auth import (
     COOKIE_ADMIN,
@@ -34,9 +32,7 @@ from .alocacao import (
     definir_n_extras,
     enriquecer_vaga,
     enriquecer_vagas,
-    escolas_do_grupo,
     _agenda_ocupadas,
-    _filtro_escolas,
     finalizar_vaga,
     organizar,
     receber_prova,
@@ -69,26 +65,17 @@ from .cadastro import (
 from .config import DATA_DIR, localizar_planilha, usando_nuvem, usando_postgres, usando_supabase
 from .diarias import gravar_ajuste, gravar_config, montar_folha
 from .relatorio import (
-    gerar_pdf_acesso,
     gerar_pdf_diarias,
     gerar_xlsx_diarias,
     gerar_pdf_quadro,
     gerar_xlsx_quadro,
-    nome_arquivo_acesso,
     nome_arquivo_pdf,
     nome_arquivo_xlsx,
 )
 from .especiais import criar_aluno_na_vaga
 from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
-from .regras import (
-    dias_do_municipio,
-    escola_indigena,
-    fmt_data,
-    grupo_escolas,
-    rotulo_municipio,
-    sql_rede_visivel,
-)
+from .regras import dias_do_municipio, fmt_data
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -129,12 +116,10 @@ class OrganizarBody(BaseModel):
     reset: bool = False
     aplicador_ids: list[int] | None = None
     nova_rodada: bool = False
-    grupo: str | None = None
 
 
 class LimparBody(BaseModel):
     municipio_id: int | None = None
-    grupo: str | None = None
 
 
 class AplicadorBody(BaseModel):
@@ -149,10 +134,6 @@ class AplicadorBody(BaseModel):
 class LoteAplicadoresBody(BaseModel):
     quantidade: int
     tipo: str | None = "APLICADOR"
-
-
-class PortalAplicadorBody(BaseModel):
-    aberto: bool
 
 
 class VincularBody(BaseModel):
@@ -190,7 +171,6 @@ class MunicipioPatchBody(BaseModel):
     dias: list[str] | None = None
     limpar_datas_vagas: bool = False
     aplicar_datas_vagas: bool = False
-    grupo: str | None = None
 
 
 class EscolaBody(BaseModel):
@@ -299,67 +279,10 @@ def index():
     return resp
 
 
-_PAGINA_ACESSO_SUSPENSO = """<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Acesso suspenso · SAETO SRE Gurupi</title>
-  <link rel="stylesheet" href="/static/acesso.css?v=win98-11" />
-</head>
-<body>
-  <main class="portal">
-    <section class="win">
-      <div class="win-title">
-        <span class="win-icon" aria-hidden="true"></span>
-        <span>Acesso do aplicador — SAETO</span>
-      </div>
-      <div class="win-body">
-        <header class="portal-brand">
-          <span>SRE Gurupi · SAETO 2026</span>
-          <strong>Acesso suspenso</strong>
-        </header>
-        <section class="card">
-          <h1>Acesso suspenso</h1>
-          <p>O acesso dos aplicadores está fora do ar neste momento. Quando a SRE liberar, este mesmo link volta a funcionar.</p>
-        </section>
-      </div>
-    </section>
-  </main>
-</body>
-</html>
-"""
-
-
-def _exigir_portal_aberto(conn) -> None:
-    if not portal_aplicador_aberto(conn):
-        raise HTTPException(403, "O acesso dos aplicadores está suspenso no momento.")
-
-
 @app.get("/acesso")
 @app.get("/acesso/{token_link}")
 def pagina_acesso(token_link: str | None = None):
-    with get_db() as conn:
-        aberto = portal_aplicador_aberto(conn)
-    if not aberto:
-        resp = HTMLResponse(_PAGINA_ACESSO_SUSPENSO)
-    else:
-        resp = FileResponse(STATIC / "acesso.html")
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/api/portal-aplicador")
-def api_portal_aplicador():
-    with get_db() as conn:
-        return {"aberto": portal_aplicador_aberto(conn)}
-
-
-@app.put("/api/portal-aplicador")
-def api_definir_portal_aplicador(body: PortalAplicadorBody):
-    with get_db() as conn:
-        aberto = definir_portal_aplicador(conn, body.aberto)
-    return {"aberto": aberto}
+    return FileResponse(STATIC / "acesso.html")
 
 
 COOKIE_PORTAL = "saeto_portal"
@@ -401,7 +324,6 @@ def api_admin_sair(request: Request, response: Response):
 @app.post("/api/acesso/entrar")
 def api_acesso_entrar(body: EntrarBody, response: Response):
     with get_db() as conn:
-        _exigir_portal_aberto(conn)
         try:
             dados = entrar_por_cpf(conn, body.cpf, body.token_link)
         except Exception as exc:
@@ -419,7 +341,6 @@ def api_acesso_entrar(body: EntrarBody, response: Response):
 @app.get("/api/acesso/eu")
 def api_acesso_eu(saeto_portal: str | None = Cookie(default=None)):
     with get_db() as conn:
-        _exigir_portal_aberto(conn)
         try:
             pessoa = aplicador_da_sessao(conn, saeto_portal)
         except LookupError as exc:
@@ -443,7 +364,6 @@ def api_acesso_finalizar(
     saeto_portal: str | None = Cookie(default=None),
 ):
     with get_db() as conn:
-        _exigir_portal_aberto(conn)
         try:
             pessoa = aplicador_da_sessao(conn, saeto_portal)
         except LookupError as exc:
@@ -457,35 +377,6 @@ def api_acesso_finalizar(
         if not resultado.get("ok"):
             raise HTTPException(400, resultado.get("erro") or "Não foi possível concluir.")
         return resultado
-
-
-@app.get("/api/acesso/pdf")
-def api_acesso_pdf(saeto_portal: str | None = Cookie(default=None)):
-    with get_db() as conn:
-        _exigir_portal_aberto(conn)
-        try:
-            pessoa = aplicador_da_sessao(conn, saeto_portal)
-        except LookupError as exc:
-            raise HTTPException(401, str(exc)) from exc
-        aplicacoes = minhas_aplicacoes(conn, pessoa["id"])
-        extras = minhas_extras(conn, pessoa["id"])
-        nome = pessoa["nome"] or pessoa["codigo"]
-        codigo = pessoa["codigo"] or ""
-        cpf = formatar_cpf(pessoa["cpf"])
-    bio = gerar_pdf_acesso(
-        nome=nome,
-        codigo=codigo,
-        cpf=cpf,
-        aplicacoes=aplicacoes,
-        extras=extras,
-    )
-    return StreamingResponse(
-        bio,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{nome_arquivo_acesso(codigo or nome)}"'
-        },
-    )
 
 
 @app.post("/api/acesso/sair")
@@ -503,74 +394,42 @@ def api_opcoes():
     return opcoes()
 
 
-def _agrupar_resumo_municipios(detalhe: list[dict]) -> list[dict]:
-    blocos: dict[tuple, dict] = {}
-    for row in detalhe:
-        indigena = escola_indigena(row["escola"])
-        chave = (row["id"], "indigena" if indigena else "")
-        bloco = blocos.get(chave)
-        if bloco is None:
-            bloco = {
-                "id": row["id"],
-                "nome": row["nome"],
-                "grupo": "indigena" if indigena else "",
-                "vagas": 0,
-                "livres": 0,
-                "finalizadas": 0,
-            }
-            blocos[chave] = bloco
-        bloco["vagas"] += int(row["vagas"] or 0)
-        bloco["livres"] += int(row["livres"] or 0)
-        bloco["finalizadas"] += int(row["finalizadas"] or 0)
-    return sorted(
-        blocos.values(),
-        key=lambda m: (m["nome"], 1 if m["grupo"] == "indigena" else 0),
-    )
-
-
 @app.get("/api/resumo")
 def resumo():
     with get_db() as conn:
-        visivel = sql_rede_visivel("e")
         tot = conn.execute(
-            f"""SELECT
+            """SELECT
                  (SELECT COUNT(DISTINCT e.municipio_id)
-                    FROM escolas e JOIN vagas v ON v.escola_id = e.id
-                    WHERE {visivel}) AS municipios,
-                 (SELECT COUNT(*) FROM escolas WHERE {sql_rede_visivel(None)}) AS escolas,
+                    FROM escolas e JOIN vagas v ON v.escola_id = e.id) AS municipios,
+                 (SELECT COUNT(*) FROM escolas) AS escolas,
                  (SELECT COUNT(*) FROM aplicadores) AS aplicadores,
                  COUNT(*) AS vagas,
-                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
-                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
-                 COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
-               FROM vagas v
-               JOIN escolas e ON e.id = v.escola_id
-               WHERE {visivel}"""
+                 COALESCE(SUM(CASE WHEN aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
+                 COALESCE(SUM(CASE WHEN aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                 COALESCE(SUM(CASE WHEN status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
+               FROM vagas"""
         ).fetchone()
         por_rede = {
             r["rede"]: r["n"]
             for r in conn.execute(
-                f"""SELECT e.rede, COUNT(*) n FROM vagas v
+                """SELECT e.rede, COUNT(*) n FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
-                   WHERE {visivel}
                    GROUP BY e.rede"""
             )
         }
-        detalhe = rows_to_dicts(
+        por_mun = rows_to_dicts(
             conn.execute(
-                f"""SELECT m.id, m.nome, e.nome AS escola,
+                """SELECT m.id, m.nome,
                           COUNT(v.id) AS vagas,
-                          COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+                          COALESCE(SUM(CASE WHEN v.id IS NOT NULL AND v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
                           COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
                    FROM municipios m
                    JOIN escolas e ON e.municipio_id = m.id
                    JOIN vagas v ON v.escola_id = e.id
-                   WHERE {visivel}
-                   GROUP BY m.id, m.nome, e.id, e.nome
-                   ORDER BY m.nome, e.nome"""
+                   GROUP BY m.id, m.nome
+                   ORDER BY m.nome"""
             )
         )
-        por_mun = _agrupar_resumo_municipios(detalhe)
         return {
             "municipios": tot["municipios"],
             "escolas": tot["escolas"],
@@ -590,7 +449,7 @@ def resumo():
 @app.get("/api/acompanhamento")
 def acompanhamento(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = [sql_rede_visivel("e")]
+        filtro = []
         params: list = []
         if municipio_id:
             filtro.append("e.municipio_id = ?")
@@ -598,7 +457,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
         if data:
             filtro.append("v.data = ?")
             params.append(data)
-        where = f"WHERE {' AND '.join(filtro)}"
+        where = f"WHERE {' AND '.join(filtro)}" if filtro else ""
         rows = conn.execute(
             f"""SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.finalizado_em,
                       v.turma, v.n_alunos, v.n_presentes,
@@ -649,7 +508,7 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
 @app.get("/api/recebimento-provas")
 def recebimento_provas(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = ["v.aplicador_id IS NOT NULL", sql_rede_visivel("e")]
+        filtro = ["v.aplicador_id IS NOT NULL"]
         params: list = []
         if municipio_id:
             filtro.append("e.municipio_id = ?")
@@ -711,7 +570,7 @@ def municipios():
                           COALESCE(SUM(CASE WHEN vg.id IS NOT NULL AND vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
-                   LEFT JOIN escolas e ON e.municipio_id = m.id AND e.rede <> 'ESTADUAL'
+                   LEFT JOIN escolas e ON e.municipio_id = m.id
                    LEFT JOIN vagas vg ON vg.escola_id = e.id
                    GROUP BY m.id, m.nome, v.data_saida, v.data_retorno, v.dias_aplicacao
                    ORDER BY m.nome"""
@@ -719,28 +578,17 @@ def municipios():
         )
         for row in rows:
             row["dias"] = dias_do_municipio(row)
-        indigenas = {
-            int(r["municipio_id"])
-            for r in conn.execute(
-                f"SELECT municipio_id, nome FROM escolas WHERE {sql_rede_visivel(None)}"
-            )
-            if escola_indigena(r["nome"])
-        }
-        for row in rows:
-            row["tem_indigena"] = int(row["id"]) in indigenas
         return rows
 
 
 @app.get("/api/escolas")
 def escolas(municipio_id: int | None = None):
     with get_db() as conn:
-        conds = [sql_rede_visivel("e")]
-        params_esc: list = []
+        filtro = ""
+        params: tuple = ()
         if municipio_id:
-            conds.append("e.municipio_id = ?")
-            params_esc.append(municipio_id)
-        filtro = " WHERE " + " AND ".join(conds)
-        params = tuple(params_esc)
+            filtro = " WHERE e.municipio_id = ?"
+            params = (municipio_id,)
         return rows_to_dicts(
             conn.execute(
                 f"""SELECT e.*, m.nome AS municipio,
@@ -789,7 +637,7 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                    FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
                    JOIN municipios m ON m.id = e.municipio_id
-                   WHERE v.aplicador_id IS NOT NULL AND e.rede <> 'ESTADUAL'
+                   WHERE v.aplicador_id IS NOT NULL
                    ORDER BY v.data, v.turno, e.nome"""
             )
         ):
@@ -803,7 +651,6 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                        JOIN vagas v ON v.id = x.vaga_id
                        JOIN escolas e ON e.id = v.escola_id
                        JOIN municipios m ON m.id = e.municipio_id
-                       WHERE e.rede <> 'ESTADUAL'
                        ORDER BY v.data, v.turno, e.nome"""
                 )
             ):
@@ -890,11 +737,9 @@ def api_editar_municipio(municipio_id: int, body: MunicipioPatchBody):
         try:
             dados = body.model_dump(exclude_unset=True)
             aplicar = dados.pop("aplicar_datas_vagas", False)
-            grupo = dados.pop("grupo", None)
-            ids_grupo = escolas_do_grupo(conn, municipio_id, grupo)
-            mun = atualizar_municipio(conn, municipio_id, escola_ids=ids_grupo, **dados)
+            mun = atualizar_municipio(conn, municipio_id, **dados)
             if aplicar:
-                _preencher_datas_faltantes(conn, municipio_id, ids_grupo)
+                _preencher_datas_faltantes(conn, municipio_id)
                 mun = atualizar_municipio(conn, municipio_id)
             return mun
         except Exception as exc:
@@ -1025,9 +870,9 @@ def api_excluir_vaga(vaga_id: int):
 _SQL_VAGAS_QUADRO = """
 SELECT v.*, e.nome AS escola_nome, e.codigo AS escola_codigo,
        e.rede, e.rural, e.municipio_id,
-       a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome, a.cpf AS apl_cpf
+       a.id AS apl_id, a.codigo AS apl_codigo, a.nome AS apl_nome
 FROM vagas v
-JOIN escolas e ON e.id = v.escola_id AND e.rede <> 'ESTADUAL'
+JOIN escolas e ON e.id = v.escola_id
 LEFT JOIN aplicadores a ON a.id = v.aplicador_id
 """
 
@@ -1051,7 +896,6 @@ def _celula_quadro(d: dict) -> dict:
             "id": d["apl_id"],
             "codigo": d["apl_codigo"],
             "nome": d["apl_nome"] or d["apl_codigo"],
-            "cpf": d.get("apl_cpf") or "",
         },
         "n_extras": d.get("n_extras") or 0,
         "extras_preenchidos": d.get("extras_preenchidos") or 0,
@@ -1066,28 +910,10 @@ def _celula_quadro(d: dict) -> dict:
                 "id": e.get("id"),
                 "nome": e.get("nome") or e.get("codigo"),
                 "codigo": e.get("codigo"),
-                "cpf": e.get("cpf") or "",
             }
             for e in (d.get("extras") or [])
         ],
     }
-
-
-def _filtrar_vagas_grupo(vagas: list[dict], grupo: str | None) -> list[dict]:
-    if grupo == "indigena":
-        return [v for v in vagas if escola_indigena(v.get("escola_nome") or "")]
-    if grupo == "cidade":
-        return [v for v in vagas if not escola_indigena(v.get("escola_nome") or "")]
-    return vagas
-
-
-def _partes_indigena(vagas: list[dict]) -> list[tuple[str | None, list[dict]]]:
-    if not any(escola_indigena(v.get("escola_nome") or "") for v in vagas):
-        return [(None, vagas)]
-    return [
-        ("cidade", _filtrar_vagas_grupo(vagas, "cidade")),
-        ("indigena", _filtrar_vagas_grupo(vagas, "indigena")),
-    ]
 
 
 def _montar_quadro_de_vagas(mun_d: dict, vagas: list[dict]) -> dict:
@@ -1134,15 +960,8 @@ def _montar_quadro_de_vagas(mun_d: dict, vagas: list[dict]) -> dict:
     }
 
 
-def _nome_filtro_quadro(dados: dict) -> str:
-    if dados.get("todos"):
-        return "Todos"
-    nome = ((dados.get("municipio") or {}).get("nome") or "Município")
-    return rotulo_municipio(nome, dados.get("grupo"))
-
-
 @app.get("/api/quadro")
-def quadro(municipio_id: int | None = None, grupo: str | None = None):
+def quadro(municipio_id: int | None = None):
     with get_db() as conn:
         if municipio_id:
             mun = conn.execute(
@@ -1154,22 +973,14 @@ def quadro(municipio_id: int | None = None, grupo: str | None = None):
             ).fetchone()
             if not mun:
                 raise HTTPException(404, "Município não encontrado.")
-            mun_d = row_to_dict(mun)
             vagas = conn.execute(
                 _SQL_VAGAS_QUADRO + " WHERE e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
                 (municipio_id,),
             ).fetchall()
-            brutas = _filtrar_vagas_grupo(
-                [dict(raw) for raw in vagas],
-                grupo_escolas(mun_d.get("nome"), grupo),
-            )
-            datas_vagas = {r["data"] for r in brutas if r["data"]}
+            datas_vagas = {r["data"] for r in vagas if r["data"]}
             agenda = _agenda_ocupadas(conn, datas_vagas or None)
-            enriquecidas = enriquecer_vagas(conn, brutas, agenda)
-            bloco = _montar_quadro_de_vagas(mun_d, enriquecidas)
-            bloco["grupo"] = grupo_escolas(mun_d.get("nome"), grupo)
-            bloco["todos"] = False
-            return bloco
+            enriquecidas = enriquecer_vagas(conn, [dict(raw) for raw in vagas], agenda)
+            return {**_montar_quadro_de_vagas(row_to_dict(mun), enriquecidas), "todos": False}
 
         municipios = conn.execute(
             """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
@@ -1190,14 +1001,12 @@ def quadro(municipio_id: int | None = None, grupo: str | None = None):
         totais = {"vagas": 0, "livres": 0, "choques": 0, "avisos": 0, "finalizadas": 0}
         for mun in municipios:
             mun_d = row_to_dict(mun)
-            for grupo_bloco, parte in _partes_indigena(por_mun.get(int(mun_d["id"]), [])):
-                bloco = _montar_quadro_de_vagas(mun_d, parte)
-                if not bloco["vagas"]:
-                    continue
-                bloco["grupo"] = grupo_bloco
-                quadros.append(bloco)
-                for chave in totais:
-                    totais[chave] += bloco[chave]
+            bloco = _montar_quadro_de_vagas(mun_d, por_mun.get(int(mun_d["id"]), []))
+            if not bloco["vagas"]:
+                continue
+            quadros.append(bloco)
+            for chave in totais:
+                totais[chave] += bloco[chave]
         return {"todos": True, "quadros": quadros, **totais}
 
 
@@ -1207,18 +1016,18 @@ def quadro_pdf(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
-    grupo: str | None = None,
-    escola_id: int | None = None,
 ):
-    dados = quadro(municipio_id, grupo)
-    nome_mun = _nome_filtro_quadro(dados)
+    dados = quadro(municipio_id)
+    if dados.get("todos"):
+        nome_mun = "Todos"
+    else:
+        nome_mun = ((dados.get("municipio") or {}).get("nome") or "Município")
     bio = gerar_pdf_quadro(
         dados,
         municipio_nome=nome_mun,
         rede=rede or "TODAS",
         so_vagos=so_vagos,
         status=status or "TODAS",
-        escola_id=escola_id,
     )
     return StreamingResponse(
         bio,
@@ -1233,18 +1042,18 @@ def quadro_xlsx(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
-    grupo: str | None = None,
-    escola_id: int | None = None,
 ):
-    dados = quadro(municipio_id, grupo)
-    nome_mun = _nome_filtro_quadro(dados)
+    dados = quadro(municipio_id)
+    if dados.get("todos"):
+        nome_mun = "Todos"
+    else:
+        nome_mun = ((dados.get("municipio") or {}).get("nome") or "Município")
     bio = gerar_xlsx_quadro(
         dados,
         municipio_nome=nome_mun,
         rede=rede or "TODAS",
         so_vagos=so_vagos,
         status=status or "TODAS",
-        escola_id=escola_id,
     )
     return StreamingResponse(
         bio,
@@ -1435,7 +1244,6 @@ def api_organizar(body: OrganizarBody):
             body.reset,
             body.aplicador_ids,
             body.nova_rodada,
-            body.grupo,
         )
 
 
@@ -1443,25 +1251,17 @@ def api_organizar(body: OrganizarBody):
 def api_limpar(body: LimparBody):
     with get_db() as conn:
         if body.municipio_id:
-            ids = escolas_do_grupo(conn, body.municipio_id, body.grupo)
-            frag, frag_params = _filtro_escolas(ids)
             conn.execute(
-                f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
+                """UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
                    WHERE escola_id IN (
-                     SELECT e.id FROM escolas e
-                     WHERE e.municipio_id = ? AND {sql_rede_visivel("e")}{frag}
+                     SELECT id FROM escolas WHERE municipio_id = ?
                    )""",
-                (body.municipio_id, *frag_params),
+                (body.municipio_id,),
             )
         else:
-            conn.execute(
-                f"""UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL
-                   WHERE escola_id IN (SELECT id FROM escolas WHERE {sql_rede_visivel(None)})"""
-            )
+            conn.execute("UPDATE vagas SET aplicador_id = NULL, alocacao = NULL, prova_recebida_em = NULL")
         livres = conn.execute(
-            f"""SELECT COUNT(*) n FROM vagas v
-               JOIN escolas e ON e.id = v.escola_id
-               WHERE v.aplicador_id IS NULL AND {sql_rede_visivel("e")}"""
+            "SELECT COUNT(*) n FROM vagas WHERE aplicador_id IS NULL"
         ).fetchone()["n"]
         return {"ok": True, "livres": livres}
 

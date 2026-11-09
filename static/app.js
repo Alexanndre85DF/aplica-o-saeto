@@ -1,9 +1,7 @@
 const state = {
   view: "resumo",
   municipioId: null,
-  grupoEscola: "",
   filtroRede: "TODAS",
-  filtroEscola: 0,
   filtroVago: false,
   filtroStatus: "TODAS",
   campoMun: "",
@@ -106,45 +104,6 @@ function tit(s) {
     .join(" ");
 }
 
-function semAcento(s) {
-  return String(s || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
-}
-
-function municipioTemIndigena(m) {
-  return !!(m && (m.tem_indigena === true || m.tem_indigena === 1 || m.tem_indigena === "1"));
-}
-
-function escolaIndigena(nome) {
-  return semAcento(nome).includes("INDIGENA");
-}
-
-function rotuloMunQuadro(nome, grupo) {
-  const base = tit(nome);
-  return grupo === "indigena" ? `${base}/Indígena` : base;
-}
-
-function valorFiltroMun() {
-  if (!state.municipioId) return "0";
-  if (state.grupoEscola === "indigena") return `${state.municipioId}:indigena`;
-  return String(state.municipioId);
-}
-
-function ajustarGrupoIndigena(municipios) {
-  if (!state.municipioId) {
-    state.grupoEscola = "";
-    return;
-  }
-  const mun = (municipios || []).find((m) => Number(m.id) === Number(state.municipioId));
-  if (!mun || !municipioTemIndigena(mun)) {
-    state.grupoEscola = "";
-    return;
-  }
-  if (state.grupoEscola !== "indigena") state.grupoEscola = "cidade";
-}
-
 function badgeRede(rede) {
   return `<span class="chip ${rede}">${rede.toLowerCase()}</span>`;
 }
@@ -163,10 +122,7 @@ async function atualizarQuadroSeAberto() {
 
 function mostrarView(view, extra = {}) {
   state.view = view;
-  if (extra.municipioId) {
-    state.municipioId = extra.municipioId;
-    state.grupoEscola = extra.grupo || "";
-  }
+  if (extra.municipioId) state.municipioId = extra.municipioId;
   if (view === "cadastro") {
     if (extra.tab) state.cadastroTab = extra.tab;
     else if (state.cadastroTab === "aplicadores") state.cadastroTab = "municipios";
@@ -699,8 +655,8 @@ async function carregarResumo() {
         ${r.por_municipio
           .filter((m) => Number(m.vagas) > 0)
           .map(
-            (m) => `<button class="mun-card" data-id="${m.id}" data-grupo="${m.grupo || ""}">
-              <b>${rotuloMunQuadro(m.nome, m.grupo)}</b>
+            (m) => `<button class="mun-card" data-id="${m.id}">
+              <b>${tit(m.nome)}</b>
               <span>${m.vagas} aplicações · ${m.livres} vagas · ${m.finalizadas || 0} aplicadas</span>
             </button>`
           )
@@ -709,10 +665,7 @@ async function carregarResumo() {
     </section>
   `;
   $$(".mun-card").forEach((btn) => {
-    btn.addEventListener("click", () => mostrarView("quadro", {
-      municipioId: Number(btn.dataset.id),
-      grupo: btn.dataset.grupo || "",
-    }));
+    btn.addEventListener("click", () => mostrarView("quadro", { municipioId: Number(btn.dataset.id) }));
   });
   $("#btn-publicar-nuvem")?.addEventListener("click", async () => {
     const btn = $("#btn-publicar-nuvem");
@@ -907,24 +860,9 @@ function quadroTodos() {
 }
 
 function quadroUrl() {
-  if (!state.municipioId) return "/api/quadro";
-  const qs = new URLSearchParams({ municipio_id: String(state.municipioId) });
-  if (state.grupoEscola) qs.set("grupo", state.grupoEscola);
-  return `/api/quadro?${qs}`;
-}
-
-function opcoesFiltroMun(municipios) {
-  const opts = [`<option value="0" ${quadroTodos() ? "selected" : ""}>Todos</option>`];
-  for (const m of municipios) {
-    const cidade = Number(m.id) === Number(state.municipioId) && state.grupoEscola !== "indigena";
-    const marca = municipioTemIndigena(m) ? "1" : "0";
-    opts.push(`<option value="${m.id}" data-indigena="${marca}" ${cidade ? "selected" : ""}>${tit(m.nome)}</option>`);
-    if (municipioTemIndigena(m)) {
-      const ind = Number(m.id) === Number(state.municipioId) && state.grupoEscola === "indigena";
-      opts.push(`<option value="${m.id}:indigena" ${ind ? "selected" : ""}>${tit(m.nome)}/Indígena</option>`);
-    }
-  }
-  return opts.join("");
+  return state.municipioId
+    ? `/api/quadro?municipio_id=${state.municipioId}`
+    : "/api/quadro";
 }
 
 function exigirMunicipioQuadro(acao) {
@@ -935,29 +873,31 @@ function exigirMunicipioQuadro(acao) {
 
 async function carregarQuadro() {
   titulo("Quadro de aplicação", "Grade por escola, turno e dia — como um horário, com vago e choque visíveis.");
-  const municipios = await apiMunicipios();
-  if (state.municipioId == null && municipios.length) {
-    state.municipioId = municipios[0].id;
-  }
-  ajustarGrupoIndigena(municipios);
   if ($("#sel-mun") && $("#quadro-corpo")) {
-    $("#sel-mun").innerHTML = opcoesFiltroMun(municipios);
-    $("#sel-mun").value = valorFiltroMun();
+    $("#sel-mun").value = String(state.municipioId || 0);
     await pintarQuadro();
     return;
   }
-  const quadroP = api(quadroUrl());
-  const munOpts = opcoesFiltroMun(municipios);
+  const munP = apiMunicipios();
+  let quadroP = state.municipioId != null
+    ? api(quadroUrl())
+    : null;
+  const municipios = await munP;
+  if (state.municipioId == null && municipios.length) {
+    state.municipioId = municipios[0].id;
+    quadroP = api(quadroUrl());
+  }
+  const munOpts = [`<option value="0" ${quadroTodos() ? "selected" : ""}>Todos</option>`]
+    .concat(municipios.map((m) => `<option value="${m.id}" ${m.id === state.municipioId ? "selected" : ""}>${tit(m.nome)}</option>`))
+    .join("");
 
   $("#view-quadro").innerHTML = `
     <div class="toolbar">
       <select id="sel-mun">${munOpts}</select>
-      <select id="sel-escola">
-        <option value="0">Todas as escolas</option>
-      </select>
       <select id="sel-rede">
         <option value="TODAS">Todas as redes</option>
         <option value="MUNICIPAL">Municipal</option>
+        <option value="ESTADUAL">Estadual</option>
         <option value="CONVENIADA">Conveniada</option>
       </select>
       <label><input type="checkbox" id="so-vagos" /> Só vagos</label>
@@ -987,21 +927,8 @@ async function carregarQuadro() {
   $("#so-vagos").checked = state.filtroVago;
   $("#sel-status").value = state.filtroStatus;
   $("#sel-mun").addEventListener("change", (e) => {
-    const valor = String(e.target.value || "0");
-    if (valor.endsWith(":indigena")) {
-      state.municipioId = Number(valor.split(":")[0]) || 0;
-      state.grupoEscola = "indigena";
-    } else {
-      state.municipioId = Number(valor) || 0;
-      const opt = e.target.selectedOptions[0];
-      state.grupoEscola = opt?.dataset.indigena === "1" ? "cidade" : "";
-    }
-    state.filtroEscola = 0;
+    state.municipioId = Number(e.target.value) || 0;
     pintarQuadro();
-  });
-  $("#sel-escola").addEventListener("change", (e) => {
-    state.filtroEscola = Number(e.target.value) || 0;
-    pintarQuadro(state._ultimoQuadro);
   });
   $("#sel-rede").addEventListener("change", (e) => {
     state.filtroRede = e.target.value;
@@ -1020,7 +947,7 @@ async function carregarQuadro() {
   };
   $("#btn-reorganizar").onclick = async () => {
     if (!exigirMunicipioQuadro("recomeçar a escala")) return;
-    if (!confirm(`Apagar as alocações de ${munNomeAtual()} e montar a escala de novo nestes dias?`)) return;
+    if (!confirm("Apagar as alocações deste município e montar a escala de novo nestes dias?")) return;
     try {
       if ((state.diasMun || []).length) {
         await api(`/api/municipios/${state.municipioId}`, {
@@ -1050,8 +977,6 @@ async function carregarQuadro() {
   const qsRelatorioQuadro = () => {
     const qs = new URLSearchParams();
     if (state.municipioId) qs.set("municipio_id", String(state.municipioId));
-    if (state.grupoEscola) qs.set("grupo", state.grupoEscola);
-    if (state.filtroEscola) qs.set("escola_id", String(state.filtroEscola));
     qs.set("rede", state.filtroRede || "TODAS");
     if (state.filtroVago) qs.set("so_vagos", "1");
     qs.set("status", state.filtroStatus || "TODAS");
@@ -1069,13 +994,10 @@ async function carregarQuadro() {
   }
   $("#btn-limpar").onclick = async () => {
     if (!exigirMunicipioQuadro("limpar alocações")) return;
-    if (!confirm(`Deixar todas as vagas de ${munNomeAtual()} livres?`)) return;
+    if (!confirm("Deixar todas as vagas deste município livres?")) return;
     await api("/api/quadro/limpar", {
       method: "POST",
-      body: JSON.stringify({
-        municipio_id: state.municipioId,
-        grupo: state.grupoEscola || null,
-      }),
+      body: JSON.stringify({ municipio_id: state.municipioId }),
     });
     pintarQuadro();
   };
@@ -1187,7 +1109,6 @@ async function abrirPainelAlocar() {
           body: JSON.stringify({
             dias: state.diasMun,
             aplicar_datas_vagas: true,
-            grupo: state.grupoEscola || null,
           }),
         });
       }
@@ -1208,7 +1129,6 @@ async function rodarOrganizar(reset, extra = {}) {
       reset,
       aplicador_ids: extra.aplicador_ids || null,
       nova_rodada: !!extra.nova_rodada,
-      grupo: state.grupoEscola || null,
     }),
   });
   const extraTxt = r.ainda_vagas
@@ -1309,7 +1229,6 @@ async function salvarPeriodoMunicipio(limpar) {
     body: JSON.stringify({
       dias,
       limpar_datas_vagas: !!limpar,
-      grupo: state.grupoEscola || null,
     }),
   });
   await pintarQuadro();
@@ -1343,44 +1262,8 @@ function ligarPeriodoQuadro() {
   });
 }
 
-function escolasDoQuadro(q) {
-  const mapa = new Map();
-  const blocos = q?.todos ? q.quadros || [] : q ? [q] : [];
-  const mostrarMun = !!q?.todos;
-  for (const bloco of blocos) {
-    const mun = bloco?.municipio?.nome || "";
-    for (const l of bloco?.linhas || []) {
-      const id = Number(l.escola_id);
-      if (!id || mapa.has(id)) continue;
-      mapa.set(id, {
-        id,
-        nome: mostrarMun && mun ? `${tit(l.escola)} — ${tit(mun)}` : tit(l.escola),
-      });
-    }
-  }
-  return [...mapa.values()].sort((a, b) => semAcento(a.nome).localeCompare(semAcento(b.nome), "pt"));
-}
-
-function preencherFiltroEscola(q) {
-  const sel = $("#sel-escola");
-  if (!sel) return;
-  const escolas = escolasDoQuadro(q);
-  const atual = Number(state.filtroEscola) || 0;
-  if (atual && !escolas.some((e) => e.id === atual)) state.filtroEscola = 0;
-  sel.innerHTML = [`<option value="0">Todas as escolas</option>`]
-    .concat(
-      escolas.map(
-        (e) =>
-          `<option value="${e.id}" ${e.id === Number(state.filtroEscola) ? "selected" : ""}>${escHtml(e.nome)}</option>`
-      )
-    )
-    .join("");
-  sel.value = String(state.filtroEscola || 0);
-}
-
 function filtrarLinhasQuadro(q) {
   return (q.linhas || []).filter((l) => {
-    if (state.filtroEscola && Number(l.escola_id) !== Number(state.filtroEscola)) return false;
     if (state.filtroRede !== "TODAS" && l.rede !== state.filtroRede) return false;
     if (state.filtroVago) {
       return q.datas.some((d) => (l.celulas[d] || []).some((s) => s.vago));
@@ -1469,14 +1352,12 @@ async function pintarQuadro(preloaded = null) {
   }
   const q = preloaded ? await preloaded : await api(quadroUrl());
   state._ultimoQuadro = q;
-  preencherFiltroEscola(q);
   if (q.todos) {
     const blocos = (q.quadros || [])
-      .filter((bloco) => !state.filtroEscola || filtrarLinhasQuadro(bloco).length)
       .map((bloco) => `
         <section class="quadro-mun">
           <section class="panel" style="margin-bottom:10px">
-            <h2>${rotuloMunQuadro(bloco.municipio.nome, bloco.grupo)}</h2>
+            <h2>${tit(bloco.municipio.nome)}</h2>
             <p style="margin:0;color:var(--ink-soft)">${bloco.vagas} aplicações · ${bloco.livres} vagas · ${bloco.finalizadas || 0} aplicadas · ${bloco.choques} choques</p>
           </section>
           ${htmlTabelaQuadro(bloco)}
@@ -1487,7 +1368,7 @@ async function pintarQuadro(preloaded = null) {
         <h2>Todos os municípios</h2>
         <p style="margin:0;color:var(--ink-soft)">${q.vagas} aplicações · ${q.livres} vagas · ${q.finalizadas || 0} aplicadas · ${q.choques} choques. Para alocar, limpar ou marcar dias, volte a um município no filtro.</p>
       </section>
-      ${blocos || `<section class="panel"><p>${state.filtroEscola ? "Nenhuma aplicação desta escola neste filtro." : "Nenhuma aplicação no quadro ainda."}</p></section>`}
+      ${blocos || `<section class="panel"><p>Nenhuma aplicação no quadro ainda.</p></section>`}
     `;
     ligarCliquesQuadro();
     return;
@@ -1496,7 +1377,7 @@ async function pintarQuadro(preloaded = null) {
   if (!q.vagas) {
     $("#quadro-corpo").innerHTML = `
       <section class="panel">
-        <h2>${rotuloMunQuadro(q.municipio.nome, q.grupo)}</h2>
+        <h2>${tit(q.municipio.nome)}</h2>
         ${periodoHtml}
         <p>Ainda não há aplicações neste município. Cadastre uma escola e depois uma vaga.</p>
         <button class="btn gold" id="btn-vazia-vaga">Nova aplicação</button>
@@ -1509,7 +1390,7 @@ async function pintarQuadro(preloaded = null) {
   }
   $("#quadro-corpo").innerHTML = `
     <section class="panel" style="margin-bottom:14px">
-      <h2>${rotuloMunQuadro(q.municipio.nome, q.grupo)}</h2>
+      <h2>${tit(q.municipio.nome)}</h2>
       ${periodoHtml}
       <p style="margin:8px 0 0;color:var(--ink-soft)">${q.vagas} aplicações · ${q.livres} vagas · ${q.finalizadas || 0} aplicadas · ${q.choques} choques · Salvar dias só abre as colunas; depois use Alocar com o que tem</p>
     </section>
@@ -1540,10 +1421,7 @@ async function carregarAplicadores() {
     "Aplicadores",
     "Cadastre as pessoas uma vez. Extra não é outro cadastro: no quadro, depois do aplicador da turma, busque o mesmo nome para acompanhar aluno especial."
   );
-  const [lista, portal] = await Promise.all([
-    api("/api/aplicadores?tipo=APLICADOR"),
-    api("/api/portal-aplicador"),
-  ]);
+  const lista = await api("/api/aplicadores?tipo=APLICADOR");
   const pendentes = lista.filter((a) => !a.identificado).length;
   const linkGeral = `${location.origin}/acesso`;
   const opts = lista.length
@@ -1556,17 +1434,6 @@ async function carregarAplicadores() {
         .join("")
     : `<option value="" disabled selected>Crie os números primeiro</option>`;
   $("#view-aplicadores").innerHTML = `
-    <section class="panel" style="margin-bottom:16px">
-      <h2>Acesso dos aplicadores</h2>
-      <p class="escola-meta" style="margin-bottom:12px">
-        ${portal.aberto
-          ? "Os links estão liberados. Quem abrir /acesso entra com o CPF."
-          : "Os links estão suspensos. Quem abrir /acesso vê que o acesso está fora do ar. O cadastro e a escala continuam aqui."}
-      </p>
-      <button type="button" class="btn ${portal.aberto ? "warn" : "gold"}" id="btn-portal">
-        ${portal.aberto ? "Suspender acesso" : "Liberar acesso"}
-      </button>
-    </section>
     <section class="panel" style="margin-bottom:16px">
       <h2>Criar números de aplicador</h2>
       <p class="escola-meta" style="margin-bottom:12px">
@@ -1621,22 +1488,6 @@ async function carregarAplicadores() {
       </table>
     </section>
   `;
-  $("#btn-portal").onclick = async () => {
-    const liberar = !portal.aberto;
-    const aviso = liberar
-      ? "Liberar o acesso dos aplicadores? Os links /acesso voltam a entrar com o CPF."
-      : "Suspender o acesso dos aplicadores? Quem abrir o link não entra, até você liberar de novo.";
-    if (!confirm(aviso)) return;
-    try {
-      await api("/api/portal-aplicador", {
-        method: "PUT",
-        body: JSON.stringify({ aberto: liberar }),
-      });
-      carregarAplicadores();
-    } catch (err) {
-      alert(err.message);
-    }
-  };
   $("#form-lote").onsubmit = async (ev) => {
     ev.preventDefault();
     const qtd = Number(ev.target.quantidade.value);
@@ -1818,7 +1669,7 @@ async function carregarDiarias() {
     ${t.sem_matricula ? `<p class="aviso-diaria">Falta matrícula em ${t.sem_matricula} linha(s). Preencha em Aplicadores para a folha oficial fechar.</p>` : ""}
     <section class="panel" style="margin-bottom:16px">
       <h2>Valor da diária</h2>
-      <p class="escola-meta" style="margin-bottom:12px">Padrão do modelo: R$ 189 × dias da viagem (saída até retorno). Aplicação em Gurupi não entra. Meia diária vale 0,5. Se a pessoa está em dois municípios no mesmo dia, esse dia conta uma vez: fica no lote que começa antes.</p>
+      <p class="escola-meta" style="margin-bottom:12px">Padrão do modelo: R$ 189 × dias da viagem (saída até retorno). Aplicação em Gurupi não entra. Meia diária vale 0,5.</p>
       <form id="form-valor-diaria" class="form-grid">
         <label class="campo">Valor padrão
           <input name="valor_padrao" type="text" value="${escHtml(String(folha.valor_padrao).replace(".", ","))}" />
@@ -1885,7 +1736,7 @@ async function carregarDiarias() {
           <td><b>${escHtml(tit(l.nome))}</b>${papel}${l.sem_matricula ? ' <span class="chip vago">sem matrícula</span>' : ""}</td>
           <td>${escHtml(l.matricula) || "—"}</td>
           <td><input class="os-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${escHtml(l.os)}" placeholder="OS" /></td>
-          <td><input class="qtd-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${String(l.qtd_diarias).replace(".", ",")}" title="Sugerido: ${l.qtd_sugerida}" />${l.dias_ja_contados ? `<div class="escola-meta">${escHtml(l.dias_ja_contados)}</div>` : ""}</td>
+          <td><input class="qtd-dia" data-apl="${l.aplicador_id}" data-mid="${l.municipio_id}" value="${String(l.qtd_diarias).replace(".", ",")}" title="Sugerido: ${l.qtd_sugerida}" /></td>
           <td>${escHtml(l.valor_fmt)}</td>
           <td style="white-space:nowrap">
             <button class="btn sm" data-salvar-dia="${l.aplicador_id}" data-mid="${l.municipio_id}">Salvar</button>
@@ -1989,7 +1840,7 @@ async function carregarDiarias() {
 }
 
 async function carregarEscolas() {
-  titulo("Escolas", "Rede municipal e conveniada na SRE Gurupi.");
+  titulo("Escolas", "Rede municipal, estadual e conveniada na SRE Gurupi.");
   const lista = await api("/api/escolas");
   $("#view-escolas").innerHTML = `
     <div class="toolbar">
@@ -2032,16 +1883,10 @@ async function carregarEscolas() {
 }
 
 async function abrirNovaAplicacao(municipioId) {
-  const [opcoes, escolasTodas] = await Promise.all([
+  const [opcoes, escolas] = await Promise.all([
     api("/api/opcoes"),
     api(municipioId ? `/api/escolas?municipio_id=${municipioId}` : "/api/escolas"),
   ]);
-  let escolas = escolasTodas;
-  if (Number(municipioId) === Number(state.municipioId) && state.grupoEscola === "indigena") {
-    escolas = escolasTodas.filter((e) => escolaIndigena(e.nome));
-  } else if (Number(municipioId) === Number(state.municipioId) && state.grupoEscola === "cidade") {
-    escolas = escolasTodas.filter((e) => !escolaIndigena(e.nome));
-  }
   if (!escolas.length) {
     alert("Cadastre uma escola neste município antes de criar a aplicação.");
     mostrarView("cadastro", { tab: "escolas" });

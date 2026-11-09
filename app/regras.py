@@ -2,19 +2,12 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from datetime import date, datetime, timedelta
 
 REDE_MUNICIPAL = "MUNICIPAL"
 REDE_ESTADUAL = "ESTADUAL"
 REDE_CONVENIADA = "CONVENIADA"
 REDES = (REDE_MUNICIPAL, REDE_ESTADUAL, REDE_CONVENIADA)
-
-
-def sql_rede_visivel(alias: str | None = "e") -> str:
-    """Escolas estaduais permanecem no banco e ficam fora das telas."""
-    coluna = "rede" if not alias else f"{alias}.rede"
-    return f"{coluna} <> '{REDE_ESTADUAL}'"
 
 TURNOS = ("MATUTINO", "VESPERTINO", "INTEGRAL", "NOTURNO")
 ANO_CAMPANHA = 2026
@@ -26,29 +19,6 @@ def normalizar_texto(valor) -> str:
         return ""
     texto = str(valor).replace("\xa0", " ")
     return re.sub(r"\s+", " ", texto).strip()
-
-
-def sem_acento(valor) -> str:
-    texto = unicodedata.normalize("NFKD", normalizar_texto(valor))
-    return "".join(c for c in texto if not unicodedata.combining(c))
-
-
-def escola_indigena(nome) -> bool:
-    return "INDIGENA" in sem_acento(nome).upper()
-
-
-def grupo_escolas(_nome, grupo: str | None) -> str | None:
-    """Cidade ou indígena, decidido pelo nome da escola."""
-    pedido = sem_acento(grupo).lower()
-    if pedido not in {"indigena", "cidade"}:
-        return None
-    return pedido
-
-
-def rotulo_municipio(nome: str, grupo: str | None = None) -> str:
-    if grupo == "indigena":
-        return f"{nome}/INDÍGENA"
-    return nome
 
 
 def normalizar_serie(valor) -> str:
@@ -72,17 +42,11 @@ def normalizar_turno(valor) -> str:
     return mapa.get(texto, texto or "MATUTINO")
 
 
-def tratar_como_estadual(nome_escola: str) -> bool:
-    """Tecelagem e Dom Bosco entraram como conveniada, mas são estaduais."""
-    nome = sem_acento(nome_escola).upper()
-    return "TECELAGEM" in nome or "DOM BOSCO" in nome
-
-
 def inferir_rede(nome_escola: str) -> str:
     nome = normalizar_texto(nome_escola).upper()
     if "MUNICIPAL" in nome or re.search(r"\bMUN\b", nome):
         return REDE_MUNICIPAL
-    if "ESTADUAL" in nome or "MILITAR" in nome or tratar_como_estadual(nome):
+    if "ESTADUAL" in nome or "MILITAR" in nome:
         return REDE_ESTADUAL
     return REDE_CONVENIADA
 

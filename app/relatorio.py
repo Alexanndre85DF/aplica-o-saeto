@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from datetime import datetime
 from io import BytesIO
 
@@ -9,22 +8,18 @@ from fpdf import FPDF
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from .cadastro import formatar_cpf
-from .regras import fmt_data, rotulo_municipio
+from .regras import fmt_data
 
 COLS = [
-    (22, "Município"),
-    (44, "Escola"),
-    (16, "Rede"),
-    (16, "Turno"),
-    (18, "Data"),
-    (28, "Série / turma"),
-    (35, "Aplicador"),
-    (22, "CPF aplicador"),
-    (28, "Aplicador extra"),
-    (22, "CPF extra"),
-    (12, "Extra"),
-    (14, "Situação"),
+    (48, "Município"),
+    (64, "Escola"),
+    (18, "Rede"),
+    (22, "Turno"),
+    (22, "Data"),
+    (34, "Série / turma"),
+    (42, "Aplicador"),
+    (14, "Extra"),
+    (13, "Situação"),
 ]
 
 
@@ -72,16 +67,7 @@ def _situacao(slot: dict) -> str:
     return "Alocado"
 
 
-def _passa_filtro(
-    linha: dict,
-    slot: dict,
-    rede: str,
-    so_vagos: bool,
-    status: str,
-    escola_id: int | None = None,
-) -> bool:
-    if escola_id and int(linha.get("escola_id") or 0) != int(escola_id):
-        return False
+def _passa_filtro(linha: dict, slot: dict, rede: str, so_vagos: bool, status: str) -> bool:
     if rede and rede != "TODAS" and linha.get("rede") != rede:
         return False
     if so_vagos:
@@ -93,46 +79,24 @@ def _passa_filtro(
     return True
 
 
-def _nome_escola_filtro(payload: dict, escola_id: int | None) -> str:
-    if not escola_id:
-        return ""
-    alvo = int(escola_id)
-    blocos = payload.get("quadros") if payload.get("todos") else [payload]
-    for bloco in blocos or []:
-        for linha in (bloco or {}).get("linhas") or []:
-            if int(linha.get("escola_id") or 0) == alvo:
-                return str(linha.get("escola") or "").strip()
-    return ""
-
-
-def linhas_do_quadro(
-    payload: dict,
-    rede: str = "TODAS",
-    so_vagos: bool = False,
-    status: str = "TODAS",
-    escola_id: int | None = None,
-) -> list[dict]:
+def linhas_do_quadro(payload: dict, rede: str = "TODAS", so_vagos: bool = False, status: str = "TODAS") -> list[dict]:
     blocos = payload.get("quadros") if payload.get("todos") else [payload]
     saida = []
     for bloco in blocos or []:
-        mun = rotulo_municipio(
-            ((bloco.get("municipio") or {}).get("nome") or "").strip(),
-            bloco.get("grupo"),
-        )
+        mun = ((bloco.get("municipio") or {}).get("nome") or "").strip()
         datas = bloco.get("datas") or []
         fmt = bloco.get("datas_fmt") or []
         rotulo = {d: f for d, f in zip(datas, fmt)}
         for linha in bloco.get("linhas") or []:
             for data in datas:
                 for slot in (linha.get("celulas") or {}).get(data) or []:
-                    if not _passa_filtro(linha, slot, rede, so_vagos, status, escola_id):
+                    if not _passa_filtro(linha, slot, rede, so_vagos, status):
                         continue
                     apl = slot.get("aplicador") or {}
                     n_ex = int(slot.get("n_extras") or 0)
                     serie = slot.get("serie") or ""
                     turma = slot.get("turma") or ""
                     nomes_extra = []
-                    cpfs_extra = []
                     vistos = set()
                     for extra in slot.get("extras") or []:
                         nome = (extra.get("nome") or extra.get("codigo") or "").strip()
@@ -141,7 +105,6 @@ def linhas_do_quadro(
                             continue
                         vistos.add(chave)
                         nomes_extra.append(nome)
-                        cpfs_extra.append(formatar_cpf(extra.get("cpf")) or "-")
                     saida.append(
                         {
                             "municipio": mun,
@@ -152,9 +115,7 @@ def linhas_do_quadro(
                             "data_ord": data or "9999-99-99",
                             "serie": f"{serie} - {turma}".strip(" -") if turma else serie,
                             "aplicador": apl.get("nome") or apl.get("codigo") or "Sem aplicador",
-                            "cpf_aplicador": formatar_cpf(apl.get("cpf")) or "-",
                             "aplicador_extra": ", ".join(nomes_extra) if nomes_extra else "-",
-                            "cpf_extra": ", ".join(cpfs_extra) if cpfs_extra else "-",
                             "extra": f"{slot.get('extras_preenchidos') or 0}/{n_ex}" if n_ex else "-",
                             "situacao": _situacao(slot),
                         }
@@ -163,17 +124,8 @@ def linhas_do_quadro(
     return saida
 
 
-def _rotulo_filtros(
-    municipio_nome: str,
-    rede: str,
-    so_vagos: bool,
-    status: str,
-    total: int,
-    escola_nome: str = "",
-) -> str:
+def _rotulo_filtros(municipio_nome: str, rede: str, so_vagos: bool, status: str, total: int) -> str:
     partes = [f"Município: {municipio_nome or 'Todos'}"]
-    if escola_nome:
-        partes.append(f"Escola: {escola_nome}")
     partes.append(f"Rede: {rede.title() if rede and rede != 'TODAS' else 'Todas'}")
     if so_vagos:
         partes.append("Só vagos")
@@ -201,11 +153,11 @@ class _PdfQuadro(FPDF):
         self.set_font("Helvetica", "", 8)
         self.cell(0, 5, _txt(self.filtros), ln=True)
         self.ln(1)
-        self.set_font("Helvetica", "B", 7)
+        self.set_font("Helvetica", "B", 8)
         self.set_fill_color(0, 0, 128)
         self.set_text_color(255, 255, 255)
         for largura, titulo in COLS:
-            self.cell(largura, 6, _caber(self, titulo, largura), border=1, fill=True, align="C")
+            self.cell(largura, 6, _txt(titulo), border=1, fill=True)
         self.ln()
         self.set_text_color(0, 0, 0)
 
@@ -223,22 +175,12 @@ def gerar_pdf_quadro(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
-    escola_id: int | None = None,
 ) -> BytesIO:
-    linhas = linhas_do_quadro(payload, rede, so_vagos, status, escola_id)
-    pdf = _PdfQuadro(
-        _rotulo_filtros(
-            municipio_nome,
-            rede,
-            so_vagos,
-            status,
-            len(linhas),
-            _nome_escola_filtro(payload, escola_id),
-        )
-    )
+    linhas = linhas_do_quadro(payload, rede, so_vagos, status)
+    pdf = _PdfQuadro(_rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas)))
     pdf.alias_nb_pages()
     pdf.add_page()
-    pdf.set_font("Helvetica", "", 7)
+    pdf.set_font("Helvetica", "", 8)
     if not linhas:
         pdf.cell(0, 8, _txt("Nenhuma aplicação neste filtro."), ln=True)
     zebra = False
@@ -252,9 +194,6 @@ def gerar_pdf_quadro(
             row["data"],
             row["serie"],
             row["aplicador"],
-            row.get("cpf_aplicador") or "-",
-            row.get("aplicador_extra") or "-",
-            row.get("cpf_extra") or "-",
             row["extra"],
             row["situacao"],
         ]
@@ -267,9 +206,7 @@ def gerar_pdf_quadro(
 
 
 def nome_arquivo_quadro(municipio_nome: str, ext: str) -> str:
-    base = unicodedata.normalize("NFKD", municipio_nome or "todos")
-    base = "".join(c for c in base if not unicodedata.combining(c))
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-").lower()[:48]
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", (municipio_nome or "todos")).strip("-").lower()[:40]
     return f"quadro-{slug or 'todos'}.{ext}"
 
 
@@ -281,177 +218,6 @@ def nome_arquivo_xlsx(municipio_nome: str) -> str:
     return nome_arquivo_quadro(municipio_nome, "xlsx")
 
 
-_COLS_ACESSO_AP = [
-    (22, "Data"),
-    (32, "Município"),
-    (48, "Escola"),
-    (22, "Turno"),
-    (34, "Série / turma"),
-    (20, "Estudantes"),
-    (48, "Extras dos especiais"),
-    (20, "Situação"),
-    (31, "Prova"),
-]
-_COLS_ACESSO_EX = [
-    (24, "Data"),
-    (38, "Município"),
-    (68, "Escola"),
-    (26, "Turno"),
-    (42, "Série / turma"),
-    (45, "Aluno"),
-    (34, "Titular"),
-]
-
-
-def _serie_turma(item: dict) -> str:
-    serie = item.get("serie") or ""
-    turma = item.get("turma") or ""
-    return f"{serie} - {turma}".strip(" -") if turma else serie
-
-
-def _extras_acesso(item: dict) -> str:
-    extras = item.get("extras") or []
-    if not extras:
-        return "-"
-    partes = []
-    for extra in extras:
-        nome = (extra.get("nome") or extra.get("codigo") or "").strip()
-        aluno = (extra.get("aluno_nome") or "").strip()
-        if nome and aluno:
-            partes.append(f"{nome} ({aluno})")
-        elif nome:
-            partes.append(nome)
-    return "; ".join(partes) or "-"
-
-
-def _estudantes_acesso(item: dict) -> str:
-    total = item.get("n_alunos")
-    if total in (None, ""):
-        return "-"
-    if item.get("finalizada") and item.get("n_presentes") is not None:
-        return f"{item['n_presentes']} de {total}"
-    return str(total)
-
-
-class _PdfAcesso(FPDF):
-    def __init__(self, subtitulo: str):
-        super().__init__(orientation="L", unit="mm", format="A4")
-        self.subtitulo = subtitulo
-        self._cols: list[tuple[float, str]] = []
-        self._repetir_cols = False
-        self.set_margins(10, 12, 10)
-        self.set_auto_page_break(auto=True, margin=14)
-
-    def header(self):
-        self.set_font("Helvetica", "B", 12)
-        self.cell(0, 6, _txt("SAETO SRE Gurupi - Minhas aplicações"), ln=True)
-        self.set_font("Helvetica", "", 8)
-        self.cell(0, 5, _txt(self.subtitulo), ln=True)
-        self.ln(1)
-        if self._cols and self._repetir_cols:
-            self._cabecalho_cols()
-
-    def _cabecalho_cols(self):
-        self.set_font("Helvetica", "B", 8)
-        self.set_fill_color(0, 0, 128)
-        self.set_text_color(255, 255, 255)
-        for largura, titulo in self._cols:
-            self.cell(largura, 6, _txt(titulo), border=1, fill=True)
-        self.ln()
-        self.set_text_color(0, 0, 0)
-        self.set_font("Helvetica", "", 8)
-
-    def footer(self):
-        self.set_y(-10)
-        self.set_font("Helvetica", "", 8)
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-        self.cell(0, 8, _txt(f"Emitido em {agora}  -  Página {self.page_no()}/{{nb}}"), align="C")
-
-    def _abrir_secao(self, titulo: str, cols: list[tuple[float, str]]) -> None:
-        self._repetir_cols = False
-        self._cols = cols
-        if self.get_y() + 20 > self.page_break_trigger:
-            self.add_page()
-        self.ln(2)
-        self.set_font("Helvetica", "B", 10)
-        self.cell(0, 6, _txt(titulo), ln=True)
-        self._cabecalho_cols()
-        self._repetir_cols = True
-
-    def _linha(self, valores: list[str], zebra: bool) -> None:
-        self.set_fill_color(236, 236, 245) if zebra else self.set_fill_color(255, 255, 255)
-        self.set_font("Helvetica", "", 8)
-        for largura, valor in zip((c[0] for c in self._cols), valores):
-            _celula(self, largura, 6, valor, fill=True)
-        self.ln()
-
-
-def nome_arquivo_acesso(codigo: str) -> str:
-    base = unicodedata.normalize("NFKD", codigo or "aplicador")
-    base = "".join(c for c in base if not unicodedata.combining(c))
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-").lower()[:32]
-    return f"aplicacoes-{slug or 'aplicador'}.pdf"
-
-
-def gerar_pdf_acesso(
-    *,
-    nome: str,
-    codigo: str,
-    cpf: str,
-    aplicacoes: list[dict],
-    extras: list[dict],
-) -> BytesIO:
-    partes = [nome or codigo or "Aplicador"]
-    if codigo:
-        partes.append(codigo)
-    if cpf:
-        partes.append(cpf)
-    partes.append(f"{len(aplicacoes)} aplicação(ões)")
-    if extras:
-        partes.append(f"{len(extras)} extra(s)")
-    pdf = _PdfAcesso("  -  ".join(partes))
-    pdf.alias_nb_pages()
-    pdf.add_page()
-    if aplicacoes:
-        pdf._abrir_secao("Aplicações", _COLS_ACESSO_AP)
-        for i, item in enumerate(aplicacoes):
-            pdf._linha(
-                [
-                    item.get("data_fmt") or "Sem data",
-                    item.get("municipio") or "",
-                    item.get("escola") or "",
-                    item.get("turno") or "",
-                    _serie_turma(item),
-                    _estudantes_acesso(item),
-                    _extras_acesso(item),
-                    "Finalizada" if item.get("finalizada") else "Prevista",
-                    "Recebida" if item.get("prova_recebida") else "Pendente",
-                ],
-                zebra=bool(i % 2),
-            )
-    if extras:
-        pdf._abrir_secao("Extra", _COLS_ACESSO_EX)
-        for i, item in enumerate(extras):
-            titular = item.get("titular") or {}
-            pdf._linha(
-                [
-                    item.get("data_fmt") or "Sem data",
-                    item.get("municipio") or "",
-                    item.get("escola") or "",
-                    item.get("turno") or "",
-                    _serie_turma(item),
-                    item.get("aluno_nome") or "-",
-                    titular.get("nome") or titular.get("codigo") or "Sem titular",
-                ],
-                zebra=bool(i % 2),
-            )
-    if not aplicacoes and not extras:
-        pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 8, _txt("Nenhuma aplicação ou extra atribuído."), ln=True)
-    bruto = pdf.output()
-    return BytesIO(bytes(bruto))
-
-
 def gerar_xlsx_quadro(
     payload: dict,
     *,
@@ -459,10 +225,8 @@ def gerar_xlsx_quadro(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
-    escola_id: int | None = None,
 ) -> BytesIO:
-    linhas = linhas_do_quadro(payload, rede, so_vagos, status, escola_id)
-    escola_nome = _nome_escola_filtro(payload, escola_id)
+    linhas = linhas_do_quadro(payload, rede, so_vagos, status)
     wb = Workbook()
     ws = wb.active
     ws.title = "Quadro"
@@ -474,9 +238,7 @@ def gerar_xlsx_quadro(
         "Data",
         "Série / turma",
         "Aplicador",
-        "CPF do aplicador",
         "Aplicador extra",
-        "CPF do aplicador extra",
         "Extra",
         "Situação",
     ]
@@ -489,11 +251,11 @@ def gerar_xlsx_quadro(
     fundo_cab = PatternFill("solid", fgColor="000080")
     fundo_zebra = PatternFill("solid", fgColor="ECECF5")
     fonte_cab = Font(bold=True, color="FFFFFF")
-    ws.merge_cells("A1:L1")
+    ws.merge_cells("A1:J1")
     ws["A1"] = "SAETO SRE Gurupi — Quadro de aplicação"
     ws["A1"].font = Font(bold=True, size=13)
-    ws.merge_cells("A2:L2")
-    ws["A2"] = _rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas), escola_nome)
+    ws.merge_cells("A2:J2")
+    ws["A2"] = _rotulo_filtros(municipio_nome, rede, so_vagos, status, len(linhas))
     ws.append([])
     ws.append(cab)
     for cell in ws[4]:
@@ -511,9 +273,7 @@ def gerar_xlsx_quadro(
                 row["data"],
                 row["serie"],
                 row["aplicador"],
-                row.get("cpf_aplicador") or "-",
                 row.get("aplicador_extra") or "-",
-                row.get("cpf_extra") or "-",
                 row["extra"],
                 row["situacao"],
             ]
@@ -531,12 +291,10 @@ def gerar_xlsx_quadro(
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 28
     ws.column_dimensions["G"].width = 32
-    ws.column_dimensions["H"].width = 18
-    ws.column_dimensions["I"].width = 36
-    ws.column_dimensions["J"].width = 22
-    ws.column_dimensions["K"].width = 10
-    ws.column_dimensions["L"].width = 12
-    ws.auto_filter.ref = f"A4:L{max(4, ws.max_row)}"
+    ws.column_dimensions["H"].width = 36
+    ws.column_dimensions["I"].width = 10
+    ws.column_dimensions["J"].width = 12
+    ws.auto_filter.ref = f"A4:J{max(4, ws.max_row)}"
     ws.freeze_panes = "A5"
     bio = BytesIO()
     wb.save(bio)

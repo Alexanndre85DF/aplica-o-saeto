@@ -83,7 +83,7 @@ function abrirDlgPresentes(a) {
     a.n_alunos != null && a.n_alunos !== "" ? String(a.n_alunos) : "não informado";
   const inp = document.getElementById("dlg-presentes-n");
   inp.value = a.n_alunos != null && a.n_alunos !== "" ? String(a.n_alunos) : "";
-  inp.max = a.n_alunos != null && a.n_alunos !== "" ? String(a.n_alunos) : "";
+  inp.removeAttribute("max");
   document.getElementById("dlg-presentes-erro").classList.add("hidden");
   document.getElementById("dlg-presentes").classList.remove("hidden");
   inp.focus();
@@ -99,12 +99,6 @@ document.getElementById("form-presentes").addEventListener("submit", async (ev) 
   const n = Number(document.getElementById("dlg-presentes-n").value);
   if (!Number.isInteger(n) || n < 0) {
     erro.textContent = "Informe um número inteiro de presentes.";
-    erro.classList.remove("hidden");
-    return;
-  }
-  const total = vagaPresentes.n_alunos;
-  if (total != null && total !== "" && n > Number(total)) {
-    erro.textContent = `Presentes não pode ser maior que o total (${total}).`;
     erro.classList.remove("hidden");
     return;
   }
@@ -169,8 +163,8 @@ async function carregarPainel() {
       aplicacoes
         .map((a) => {
           const total = a.n_alunos != null && a.n_alunos !== ""
-            ? `Total de estudantes: ${a.n_alunos}`
-            : "Total de estudantes: não informado";
+            ? `Total cadastrado: ${a.n_alunos}`
+            : "Total cadastrado: não informado";
           const presentes = a.finalizada
             ? (a.n_presentes != null
               ? `Presentes: ${a.n_presentes}${a.n_alunos != null ? " de " + a.n_alunos : ""}`

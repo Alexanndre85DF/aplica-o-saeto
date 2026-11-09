@@ -12,7 +12,6 @@ from .regras import (
     normalizar_texto,
     normalizar_turno,
     serie_par_segundo_ano,
-    tratar_como_estadual,
 )
 
 REGIONAL_PADRAO = "GURUPI"
@@ -179,7 +178,7 @@ def importar_caed(caminho: Path, conn, regional: str = REGIONAL_PADRAO) -> dict:
                 "mun": mun,
                 "escola": escola,
                 "codigo": codigo,
-                "rede": "ESTADUAL" if tratar_como_estadual(escola) else _rede_de(_valor(row, col_rede)),
+                "rede": _rede_de(_valor(row, col_rede)),
                 "rural": 1 if "RURAL" in _cab(_valor(row, col_loc)) else 0,
                 "turma": turma,
                 "serie": serie,
@@ -311,7 +310,7 @@ def importar_homologacao(
             avisos.append(f"Linha sem município ou escola, ignorada.")
             continue
         codigo = str(_valor(row, col_cod) or "").strip() or f"CAD-{escola[:20]}"
-        rede = "ESTADUAL" if tratar_como_estadual(escola) else _rede_de(_valor(row, col_rede))
+        rede = _rede_de(_valor(row, col_rede))
         rural = 1 if "RURAL" in _cab(_valor(row, col_loc)) else 0
         turma = normalizar_texto(_valor(row, col_turma))
         serie = serie_da_etapa(str(_valor(row, col_etapa) or "")) or serie_da_etapa(turma)

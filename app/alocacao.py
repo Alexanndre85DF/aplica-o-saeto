@@ -10,10 +10,7 @@ from .regras import (
     dias_do_municipio,
     eh_segundo_ano_dia1,
     eh_segundo_ano_dia2,
-    escola_indigena,
-    grupo_escolas,
     serie_par_segundo_ano,
-    sql_rede_visivel,
     turnos_sobrepoem,
 )
 
@@ -59,32 +56,11 @@ def _unicos_problemas(problemas: list[dict]) -> list[dict]:
     return unicos
 
 
-def _lado_escola(nome) -> str:
-    return "indigena" if escola_indigena(nome) else "cidade"
-
-
 def _problemas_com_outros(vaga: dict, outros) -> list[dict]:
     problemas = []
     mun_atual = vaga.get("municipio_id")
     mesma_data = bool(vaga.get("data"))
     for o in outros:
-        if (
-            o.get("papel") != "extra"
-            and o.get("municipio_id") == mun_atual
-            and _lado_escola(o.get("escola_nome")) != _lado_escola(vaga.get("escola_nome"))
-        ):
-            lado = "indígenas" if _lado_escola(o.get("escola_nome")) == "indigena" else "da cidade"
-            problemas.append(
-                {
-                    "tipo": "outro_grupo",
-                    "grau": "choque",
-                    "mensagem": (
-                        f"Já está nas escolas {lado} deste município"
-                        f" ({o.get('escola_nome')})."
-                    ),
-                }
-            )
-            continue
         if not mesma_data or not o["data"]:
             if o["municipio_id"] != mun_atual:
                 problemas.append(
@@ -257,13 +233,12 @@ def contar_choques(conn) -> int:
     if agora - _CHOQUE_CACHE["em"] < 45:
         return _CHOQUE_CACHE["n"]
     row = conn.execute(
-        f"""
+        """
         SELECT COUNT(DISTINCT v1.id) AS n
         FROM vagas v1
         JOIN escolas e1 ON e1.id = v1.escola_id
         WHERE v1.aplicador_id IS NOT NULL
           AND v1.data IS NOT NULL
-          AND {sql_rede_visivel("e1")}
           AND (
             EXISTS (
                 SELECT 1 FROM vagas v2
@@ -271,7 +246,6 @@ def contar_choques(conn) -> int:
                 WHERE v2.aplicador_id = v1.aplicador_id
                   AND v2.id != v1.id
                   AND v2.data = v1.data
-                  AND {sql_rede_visivel("e2")}
                   AND (v1.turno = v2.turno OR e1.municipio_id != e2.municipio_id)
             )
           )
@@ -390,7 +364,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
         FROM vagas v
         JOIN escolas e ON e.id = v.escola_id
         JOIN municipios m ON m.id = e.municipio_id
-        WHERE v.aplicador_id IS NOT NULL AND {sql_rede_visivel("e")}{extra_data}
+        WHERE v.aplicador_id IS NOT NULL{extra_data}
         """,
         params,
     ):
@@ -404,7 +378,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
             JOIN vagas v ON v.id = x.vaga_id
             JOIN escolas e ON e.id = v.escola_id
             JOIN municipios m ON m.id = e.municipio_id
-            WHERE {sql_rede_visivel("e")}{extra_data}
+            WHERE 1=1{extra_data}
             """,
             params,
         )
@@ -471,7 +445,7 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
         ph = ",".join("?" * len(ids))
         try:
             rows = conn.execute(
-                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, a.cpf, x.aluno_id,
+                f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, x.aluno_id,
                            al.nome AS aluno_nome
                     FROM vaga_extras x
                     JOIN aplicadores a ON a.id = x.aplicador_id
@@ -484,7 +458,7 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             rows = []
             try:
                 rows = conn.execute(
-                    f"""SELECT x.vaga_id, a.id, a.codigo, a.nome, a.cpf
+                    f"""SELECT x.vaga_id, a.id, a.codigo, a.nome
                         FROM vaga_extras x
                         JOIN aplicadores a ON a.id = x.aplicador_id
                         WHERE x.vaga_id IN ({ph})
@@ -494,12 +468,7 @@ def _anexar_extras(conn, vagas: list[dict], agenda: dict[int, list[dict]] | None
             except Exception:
                 rows = []
         for r in rows:
-            item = {
-                "id": r["id"],
-                "codigo": r["codigo"],
-                "nome": r["nome"] or r["codigo"],
-                "cpf": r["cpf"] if "cpf" in r.keys() else "",
-            }
+            item = {"id": r["id"], "codigo": r["codigo"], "nome": r["nome"] or r["codigo"]}
             try:
                 item["aluno_id"] = r["aluno_id"]
                 item["aluno_nome"] = r["aluno_nome"]
@@ -808,12 +777,7 @@ def candidatos_para_extra(
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
                 "identificado": identificado,
-                "no_municipio": any(
-                    o["municipio_id"] == vaga["municipio_id"]
-                    and o.get("papel") != "extra"
-                    and _lado_escola(o.get("escola_nome")) == _lado_escola(vaga.get("escola_nome"))
-                    for o in slots
-                ),
+                "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": ok,
                 "choques": checagem["choques"],
                 "avisos": checagem["avisos"],
@@ -914,12 +878,7 @@ def candidatos_para_vaga(
                 "carga_extra": len(extra_slots),
                 "cadastro_extra": _tipo_de(a) == "EXTRA",
                 "identificado": identificado,
-                "no_municipio": any(
-                    o["municipio_id"] == vaga["municipio_id"]
-                    and o.get("papel") != "extra"
-                    and _lado_escola(o.get("escola_nome")) == _lado_escola(vaga.get("escola_nome"))
-                    for o in slots
-                ),
+                "no_municipio": any(o["municipio_id"] == vaga["municipio_id"] for o in slots),
                 "ok": checagem["ok"],
                 "choques": checagem["choques"],
                 "avisos": checagem["avisos"],
@@ -1020,19 +979,15 @@ def substituir_aplicador(
         return {"ok": False, "erro": "Aplicador não encontrado ou inativo."}
 
     ocupado = conn.execute(
-        f"""SELECT COUNT(*) AS n FROM vagas v
-           JOIN escolas e ON e.id = v.escola_id
-           WHERE v.aplicador_id = ? AND v.data = ? AND v.id != ?
-             AND {sql_rede_visivel("e")}""",
+        """SELECT COUNT(*) AS n FROM vagas
+           WHERE aplicador_id = ? AND data = ? AND id != ?""",
         (novo_aplicador_id, dia, vaga_id),
     ).fetchone()
     extra_dia = conn.execute(
-        f"""SELECT COUNT(*) AS n
+        """SELECT COUNT(*) AS n
            FROM vaga_extras x
            JOIN vagas v ON v.id = x.vaga_id
-           JOIN escolas e ON e.id = v.escola_id
-           WHERE x.aplicador_id = ? AND v.data = ? AND v.id != ?
-             AND {sql_rede_visivel("e")}""",
+           WHERE x.aplicador_id = ? AND v.data = ? AND v.id != ?""",
         (novo_aplicador_id, dia, vaga_id),
     ).fetchone()
     if int((ocupado["n"] if ocupado else 0) or 0) + int((extra_dia["n"] if extra_dia else 0) or 0) > 0:
@@ -1154,55 +1109,26 @@ def garantir_data_do_periodo(conn, vaga: dict, repetir_par: bool = True) -> None
     aplicar_data_na_vaga(conn, vaga, data, repetir_par)
 
 
-def _carga_dia(conn, municipio_id: int, dia: str, escola_ids: list[int] | None = None) -> int:
-    frag, frag_params = _filtro_escolas(escola_ids)
+def _carga_dia(conn, municipio_id: int, dia: str) -> int:
     return conn.execute(
-        f"""SELECT COUNT(*) n FROM vagas v
+        """SELECT COUNT(*) n FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND v.data = ? AND {sql_rede_visivel("e")}{frag}""",
-        (municipio_id, dia, *frag_params),
+           WHERE e.municipio_id = ? AND v.data = ?""",
+        (municipio_id, dia),
     ).fetchone()["n"]
 
 
-def _filtro_escolas(escola_ids: list[int] | None) -> tuple[str, list]:
-    if escola_ids is None:
-        return "", []
-    if not escola_ids:
-        return " AND 1=0", []
-    marcas = ", ".join("?" for _ in escola_ids)
-    return f" AND e.id IN ({marcas})", list(escola_ids)
-
-
-def escolas_do_grupo(conn, municipio_id: int | None, grupo: str | None) -> list[int] | None:
-    """None mantém o município inteiro. Lista restringe às escolas do filtro."""
-    if not municipio_id:
-        return None
-    mun = conn.execute("SELECT nome FROM municipios WHERE id = ?", (municipio_id,)).fetchone()
-    if not mun:
-        return None
-    pedido = grupo_escolas(mun["nome"], grupo)
-    if not pedido:
-        return None
-    rows = conn.execute(
-        "SELECT id, nome FROM escolas WHERE municipio_id = ? AND rede <> 'ESTADUAL'",
-        (municipio_id,),
-    ).fetchall()
-    querer_indigena = pedido == "indigena"
-    return [int(r["id"]) for r in rows if escola_indigena(r["nome"]) == querer_indigena]
-
-
-def _preencher_datas_faltantes(conn, municipio_id: int, escola_ids: list[int] | None = None) -> None:
+def _preencher_datas_faltantes(conn, municipio_id: int) -> None:
     periodo = dias_do_municipio(_viagem_municipio(conn, municipio_id))
     if not periodo:
         return
-    frag, frag_params = _filtro_escolas(escola_ids)
     vagas = conn.execute(
-        f"""SELECT v.*, e.municipio_id
+        """SELECT v.*, e.municipio_id
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND {sql_rede_visivel("e")} AND (v.data IS NULL OR v.data = ''){frag}
+           WHERE e.municipio_id = ? AND (v.data IS NULL OR v.data = '')
            ORDER BY CASE WHEN v.serie LIKE '%DIA 2%' THEN 1 ELSE 0 END, v.id""",
-        (municipio_id, *frag_params),
+        (municipio_id,),
     ).fetchall()
     for vaga in vagas:
         item = dict(vaga)
@@ -1212,35 +1138,31 @@ def _preencher_datas_faltantes(conn, municipio_id: int, escola_ids: list[int] | 
             garantir_data_do_periodo(conn, item, True)
             continue
         candidatos = periodo[:-1] if eh_segundo_ano_dia1(item["serie"]) and len(periodo) > 1 else periodo
-        data = min(candidatos, key=lambda d: _carga_dia(conn, municipio_id, d, escola_ids))
+        data = min(candidatos, key=lambda d: _carga_dia(conn, municipio_id, d))
         aplicar_data_na_vaga(conn, item, data, True)
 
 
-def redistribuir_datas_municipio(
-    conn, municipio_id: int, escola_ids: list[int] | None = None
-) -> int:
+def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
     row = _viagem_municipio(conn, municipio_id)
     periodo = dias_do_municipio(row)
     if not periodo:
         return 0
-    frag, frag_params = _filtro_escolas(escola_ids)
-    params = (municipio_id, *frag_params)
     antigas = [
         r["data"]
         for r in conn.execute(
-            f"""SELECT DISTINCT v.data FROM vagas v
+            """SELECT DISTINCT v.data FROM vagas v
                JOIN escolas e ON e.id = v.escola_id
-               WHERE e.municipio_id = ? AND {sql_rede_visivel("e")} AND v.data IS NOT NULL AND v.data != ''{frag}
+               WHERE e.municipio_id = ? AND v.data IS NOT NULL AND v.data != ''
                ORDER BY v.data""",
-            params,
+            (municipio_id,),
         )
     ]
     mapa = {antiga: periodo[min(i, len(periodo) - 1)] for i, antiga in enumerate(antigas)}
     vagas = conn.execute(
-        f"""SELECT v.id, v.data FROM vagas v
+        """SELECT v.id, v.data FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND {sql_rede_visivel("e")}{frag}""",
-        params,
+           WHERE e.municipio_id = ?""",
+        (municipio_id,),
     ).fetchall()
     if not vagas:
         return 0
@@ -1254,11 +1176,11 @@ def redistribuir_datas_municipio(
         if nova and nova != vaga["data"]:
             conn.execute("UPDATE vagas SET data = ? WHERE id = ?", (nova, vaga["id"]))
     pares = conn.execute(
-        f"""SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
+        """SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND {sql_rede_visivel("e")}{frag}""",
-        params,
+           WHERE e.municipio_id = ?""",
+        (municipio_id,),
     ).fetchall()
     for vaga in pares:
         if not eh_segundo_ano_dia1(vaga["serie"]) or not vaga["data"]:
@@ -1281,21 +1203,16 @@ def organizar(
     reset: bool = False,
     aplicador_ids: list[int] | None = None,
     nova_rodada: bool = False,
-    grupo: str | None = None,
 ) -> dict:
     params = []
-    filtro = f" AND {sql_rede_visivel('e')}"
-    ids_grupo = escolas_do_grupo(conn, municipio_id, grupo) if municipio_id else None
+    filtro = ""
     if municipio_id:
-        filtro += " AND e.municipio_id = ?"
+        filtro = " AND e.municipio_id = ?"
         params.append(municipio_id)
-        frag, frag_params = _filtro_escolas(ids_grupo)
-        filtro += frag
-        params.extend(frag_params)
 
     if reset:
         if municipio_id:
-            redistribuir_datas_municipio(conn, municipio_id, ids_grupo)
+            redistribuir_datas_municipio(conn, municipio_id)
         else:
             for r in conn.execute("SELECT id FROM municipios"):
                 redistribuir_datas_municipio(conn, r["id"])
@@ -1310,7 +1227,7 @@ def organizar(
         )
     else:
         if municipio_id:
-            _preencher_datas_faltantes(conn, municipio_id, ids_grupo)
+            _preencher_datas_faltantes(conn, municipio_id)
         else:
             for r in conn.execute("SELECT id FROM municipios"):
                 _preencher_datas_faltantes(conn, r["id"])
@@ -1396,13 +1313,7 @@ def organizar(
                     continue
                 slots = agenda.get(a["id"], [])
                 score = random.randint(-8, 8)
-                lado = _lado_escola(vaga.get("escola_nome"))
-                if any(
-                    o.get("municipio_id") == vaga["municipio_id"]
-                    and o.get("papel") != "extra"
-                    and _lado_escola(o.get("escola_nome")) == lado
-                    for o in slots
-                ):
+                if any(o["municipio_id"] == vaga["municipio_id"] for o in slots):
                     score += 100
                 if any(o["escola_id"] == vaga["escola_id"] for o in slots):
                     score += 40
@@ -1456,7 +1367,7 @@ def organizar(
 
 def finalizar_vaga(conn, vaga_id: int, finalizada: bool, n_presentes: int | None = None) -> dict:
     vaga = conn.execute(
-        "SELECT id, n_alunos FROM vagas WHERE id = ?", (vaga_id,)
+        "SELECT id FROM vagas WHERE id = ?", (vaga_id,)
     ).fetchone()
     if not vaga:
         return {"ok": False, "erro": "Vaga não encontrada."}
@@ -1469,12 +1380,6 @@ def finalizar_vaga(conn, vaga_id: int, finalizada: bool, n_presentes: int | None
                 return {"ok": False, "erro": "Informe um número válido de estudantes presentes."}
             if presentes < 0:
                 return {"ok": False, "erro": "O número de presentes não pode ser negativo."}
-            total = vaga["n_alunos"]
-            if total is not None and presentes > int(total):
-                return {
-                    "ok": False,
-                    "erro": f"Presentes ({presentes}) não pode ser maior que o total de {int(total)} estudantes.",
-                }
         agora = datetime.now(timezone.utc).isoformat()
         conn.execute(
             "UPDATE vagas SET status = 'FINALIZADA', finalizado_em = ?, n_presentes = ? WHERE id = ?",
