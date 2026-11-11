@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from fpdf import FPDF
@@ -625,3 +625,157 @@ def gerar_pdf_acesso(aplicador: dict, aplicacoes: list[dict], extras: list[dict]
         )
         _bloco_acesso(pdf, linhas)
     return BytesIO(bytes(pdf.output()))
+
+
+COLS_BAIXA = [
+    (36, "Município"),
+    (48, "Escola"),
+    (22, "Data"),
+    (24, "Turno"),
+    (50, "Turma"),
+    (40, "Aplicador"),
+    (25, "Baixa"),
+    (16, "Total"),
+    (16, "Presentes"),
+]
+
+COLS_PENDENTES = [
+    (42, "Município"),
+    (62, "Escola"),
+    (24, "Data"),
+    (26, "Turno"),
+    (62, "Turma"),
+    (45, "Aplicador"),
+    (16, "Total"),
+]
+
+
+def _tit_pdf(valor) -> str:
+    mini = {"do", "da", "de", "dos", "das", "e"}
+    partes = str(valor or "").lower().split()
+    return " ".join(
+        palavra if indice and palavra in mini else palavra[:1].upper() + palavra[1:]
+        for indice, palavra in enumerate(partes)
+    )
+
+
+def _rotulo_turma_pdf(item: dict) -> str:
+    serie = item.get("serie") or ""
+    turma = str(item.get("turma") or "").strip()
+    if turma:
+        return f"{serie} — {turma}"
+    try:
+        ordem = int(item.get("ordem") or 1)
+    except (TypeError, ValueError):
+        ordem = 1
+    if ordem > 1:
+        return f"{serie} · {ordem}"
+    return serie
+
+
+def _hora_baixa(iso) -> str:
+    if not iso:
+        return "—"
+    texto = str(iso).replace("Z", "+00:00")
+    try:
+        momento = datetime.fromisoformat(texto)
+    except ValueError:
+        return str(iso)[:16]
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=timezone.utc)
+    local = momento.astimezone(timezone.utc) - timedelta(hours=3)
+    return local.strftime("%d/%m, %H:%M")
+
+
+class _PdfAcompanhamento(FPDF):
+    def __init__(self, titulo: str, filtros: str, colunas: list[tuple[int, str]]):
+        super().__init__(orientation="L", unit="mm", format="A4")
+        self.titulo = titulo
+        self.filtros = filtros
+        self.colunas = colunas
+        self.set_margins(10, 12, 10)
+        self.set_auto_page_break(auto=True, margin=14)
+
+    def header(self):
+        self.set_font("Helvetica", "B", 12)
+        self.cell(0, 6, _txt(self.titulo), ln=True)
+        self.set_font("Helvetica", "", 8)
+        self.cell(0, 5, _txt(self.filtros), ln=True)
+        self.ln(1)
+        self.set_font("Helvetica", "B", 8)
+        self.set_fill_color(0, 0, 128)
+        self.set_text_color(255, 255, 255)
+        for largura, titulo in self.colunas:
+            self.cell(largura, 6, _txt(titulo), border=1, fill=True)
+        self.ln()
+        self.set_text_color(0, 0, 0)
+
+    def footer(self):
+        self.set_y(-10)
+        self.set_font("Helvetica", "", 8)
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        self.cell(0, 8, _txt(f"Emitido em {agora}  -  Página {self.page_no()}/{{nb}}"), align="C")
+
+
+def _pdf_acompanhamento(
+    itens: list[dict],
+    filtros: str,
+    *,
+    titulo: str,
+    colunas: list[tuple[int, str]],
+    vazio: str,
+    com_baixa: bool,
+) -> BytesIO:
+    pdf = _PdfAcompanhamento(titulo, filtros, colunas)
+    pdf.alias_nb_pages()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "", 8)
+    if not itens:
+        pdf.cell(0, 8, _txt(vazio), ln=True)
+    zebra = False
+    for item in itens:
+        aplicador = item.get("aplicador") or {}
+        nome = aplicador.get("nome") or aplicador.get("codigo") or "Sem aplicador"
+        total = item.get("n_alunos")
+        presentes = item.get("n_presentes")
+        pdf.set_fill_color(236, 236, 245) if zebra else pdf.set_fill_color(255, 255, 255)
+        valores = [
+            _tit_pdf(item.get("municipio")),
+            _tit_pdf(item.get("escola")),
+            fmt_data(item.get("data")) if item.get("data") else "—",
+            item.get("turno") or "",
+            _rotulo_turma_pdf(item),
+            _tit_pdf(nome),
+        ]
+        if com_baixa:
+            valores.append(_hora_baixa(item.get("finalizado_em")))
+        valores.append("" if total in (None, "") else str(total))
+        if com_baixa:
+            valores.append("" if presentes is None else str(presentes))
+        for largura, valor in zip((c[0] for c in colunas), valores):
+            _celula(pdf, largura, 6, valor, fill=True)
+        pdf.ln()
+        zebra = not zebra
+    return BytesIO(bytes(pdf.output()))
+
+
+def gerar_pdf_baixas(itens: list[dict], filtros: str) -> BytesIO:
+    return _pdf_acompanhamento(
+        itens,
+        filtros,
+        titulo="SAETO SRE Gurupi - Acompanhamento - Deram baixa",
+        colunas=COLS_BAIXA,
+        vazio="Nenhuma baixa neste filtro.",
+        com_baixa=True,
+    )
+
+
+def gerar_pdf_pendentes(itens: list[dict], filtros: str) -> BytesIO:
+    return _pdf_acompanhamento(
+        itens,
+        filtros,
+        titulo="SAETO SRE Gurupi - Acompanhamento - Pendentes",
+        colunas=COLS_PENDENTES,
+        vazio="Nada pendente neste filtro.",
+        com_baixa=False,
+    )

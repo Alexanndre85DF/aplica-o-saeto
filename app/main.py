@@ -66,6 +66,8 @@ from .config import DATA_DIR, localizar_planilha, usando_nuvem, usando_postgres,
 from .diarias import gravar_ajuste, gravar_config, montar_folha
 from .relatorio import (
     gerar_pdf_acesso,
+    gerar_pdf_baixas,
+    gerar_pdf_pendentes,
     gerar_pdf_diarias,
     gerar_xlsx_diarias,
     gerar_pdf_quadro,
@@ -531,6 +533,39 @@ def acompanhamento(municipio_id: int | None = None, data: str | None = None):
                 "livres": len(livres),
             },
         }
+
+
+@app.get("/api/acompanhamento/pdf")
+def acompanhamento_pdf(
+    municipio_id: int | None = None,
+    data: str | None = None,
+    situacao: str = "baixas",
+):
+    dados = acompanhamento(municipio_id=municipio_id, data=data)
+    if municipio_id:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT nome FROM municipios WHERE id = ?", (municipio_id,)
+            ).fetchone()
+        nome_mun = row["nome"] if row else "Município"
+    else:
+        nome_mun = "Todos os municípios"
+    dia = fmt_data(data) if data else "Todos os dias"
+    pendentes = situacao == "pendentes"
+    itens = dados["pendentes"] if pendentes else dados["aplicadas"]
+    rotulo = f"{len(itens)} pendente(s)" if pendentes else f"{len(itens)} baixa(s)"
+    filtros = f"{nome_mun}  -  {dia}  -  {rotulo}"
+    bio = (
+        gerar_pdf_pendentes(itens, filtros)
+        if pendentes
+        else gerar_pdf_baixas(itens, filtros)
+    )
+    nome = "pendentes-acompanhamento.pdf" if pendentes else "baixas-acompanhamento.pdf"
+    return StreamingResponse(
+        bio,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{nome}"'},
+    )
 
 
 @app.get("/api/recebimento-provas")

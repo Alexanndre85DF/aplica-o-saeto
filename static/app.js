@@ -698,16 +698,24 @@ function fmtHora(iso) {
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+function rotuloTurma(item) {
+  const serie = item.serie || "";
+  const turma = item.turma ? String(item.turma).trim() : "";
+  if (turma) return `${serie} — ${turma}`;
+  return `${serie}${item.ordem > 1 ? " · " + item.ordem : ""}`;
+}
+
 function cardCampo(item, feita) {
   const quem = item.aplicador ? nomeApl(item.aplicador) : "Sem aplicador";
   const hora = feita && item.finalizado_em ? ` · baixa ${fmtHora(item.finalizado_em)}` : "";
   const total = item.n_alunos != null && item.n_alunos !== "" ? String(item.n_alunos) : "";
-  const detalhe = `${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno} · ${item.serie}${item.ordem > 1 ? " · " + item.ordem : ""}`;
+  const turma = rotuloTurma(item);
+  const detalhe = `${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno} · ${turma}`;
   return `<article class="item-campo ${feita ? "feita" : ""}">
     <b>${tit(item.escola)}</b>
     <div class="meta">
       ${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno}<br />
-      ${item.serie}${item.ordem > 1 ? " · " + item.ordem : ""} · ${quem}${hora}
+      ${escHtml(turma)} · ${quem}${hora}
       ${total ? `<br />Total cadastrado: ${escHtml(total)}` : ""}
       ${feita && item.n_presentes != null ? ` · presentes: ${item.n_presentes}` : ""}
     </div>
@@ -764,6 +772,8 @@ async function carregarCampo() {
       <select id="campo-mun">${munOpts}</select>
       <select id="campo-data">${dataOpts}</select>
       <button class="btn ghost" id="btn-atualizar-campo">Atualizar</button>
+      <button class="btn" id="btn-pdf-pendentes">PDF pendentes</button>
+      <button class="btn gold" id="btn-pdf-campo">PDF das baixas</button>
     </div>
     ${d.contagem.livres ? `<p class="escola-meta" style="margin-bottom:12px">${d.contagem.livres} aplicação(ões) ainda sem aplicador neste filtro.</p>` : ""}
     <div class="colunas-campo">
@@ -788,6 +798,15 @@ async function carregarCampo() {
     carregarCampo();
   });
   $("#btn-atualizar-campo").onclick = () => carregarCampo();
+  const abrirPdfCampo = (situacao) => {
+    const pdfQs = new URLSearchParams();
+    if (state.campoMun) pdfQs.set("municipio_id", state.campoMun);
+    if (state.campoData) pdfQs.set("data", state.campoData);
+    pdfQs.set("situacao", situacao);
+    window.open(`/api/acompanhamento/pdf?${pdfQs.toString()}`, "_blank");
+  };
+  $("#btn-pdf-pendentes").onclick = () => abrirPdfCampo("pendentes");
+  $("#btn-pdf-campo").onclick = () => abrirPdfCampo("baixas");
   $$("[data-baixa]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";
