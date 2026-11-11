@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SAETO · Aplicação SRE Gurupi</title>
-  <link rel="stylesheet" href="/static/styles.css?v=win98-14" />
+  <link rel="stylesheet" href="/static/styles.css?v=win98-15" />
 </head>
 <body>
   <aside class="sidebar">
@@ -126,6 +126,28 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=win98-42"></script>
+  <div id="dlg-baixa" class="dlg-baixa hidden">
+    <section class="win login-win">
+      <div class="win-title">
+        <span class="win-icon" aria-hidden="true"></span>
+        <span>Dar baixa</span>
+        <button type="button" class="win-ctrl close" id="dlg-baixa-x" aria-label="Fechar">×</button>
+      </div>
+      <form id="form-baixa" class="login-body">
+        <p id="dlg-baixa-escola"></p>
+        <p id="dlg-baixa-detalhe"></p>
+        <p>Total cadastrado: <b id="dlg-baixa-total">—</b></p>
+        <p>Informe quantos estudantes estavam na sala. Pode ser maior que o total cadastrado.</p>
+        <label class="campo">Estudantes presentes
+          <input id="dlg-baixa-n" type="number" min="0" step="1" required />
+        </label>
+        <p id="dlg-baixa-erro" class="erro hidden"></p>
+        <button type="submit" class="btn gold">Confirmar baixa</button>
+        <button type="button" class="btn ghost" id="dlg-baixa-cancelar">Cancelar</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/static/app.js?v=win98-43"></script>
 </body>
 </html>

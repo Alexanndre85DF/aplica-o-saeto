@@ -65,6 +65,7 @@ from .cadastro import (
 from .config import DATA_DIR, localizar_planilha, usando_nuvem, usando_postgres, usando_supabase
 from .diarias import gravar_ajuste, gravar_config, montar_folha
 from .relatorio import (
+    gerar_pdf_acesso,
     gerar_pdf_diarias,
     gerar_xlsx_diarias,
     gerar_pdf_quadro,
@@ -377,6 +378,29 @@ def api_acesso_finalizar(
         if not resultado.get("ok"):
             raise HTTPException(400, resultado.get("erro") or "Não foi possível concluir.")
         return resultado
+
+
+@app.get("/api/acesso/pdf")
+def api_acesso_pdf(saeto_portal: str | None = Cookie(default=None)):
+    with get_db() as conn:
+        try:
+            pessoa = aplicador_da_sessao(conn, saeto_portal)
+        except LookupError as exc:
+            raise HTTPException(401, str(exc)) from exc
+        aplicador = {
+            "nome": pessoa["nome"] or pessoa["codigo"],
+            "codigo": pessoa["codigo"],
+            "numero": pessoa["numero"],
+            "cpf_fmt": formatar_cpf(pessoa["cpf"]),
+        }
+        aplicacoes = minhas_aplicacoes(conn, pessoa["id"])
+        extras = minhas_extras(conn, pessoa["id"])
+    bio = gerar_pdf_acesso(aplicador, aplicacoes, extras)
+    return StreamingResponse(
+        bio,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="minha-aplicacao.pdf"'},
+    )
 
 
 @app.post("/api/acesso/sair")

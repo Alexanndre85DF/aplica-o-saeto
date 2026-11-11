@@ -516,3 +516,112 @@ def gerar_xlsx_diarias(folha: dict, municipio_id: int | None = None, q: str | No
     wb.save(bio)
     bio.seek(0)
     return bio
+
+
+def _linha_acesso(item: dict) -> list[str]:
+    serie = item.get("serie") or ""
+    turma = item.get("turma") or ""
+    serie_txt = f"{serie} - {turma}".strip(" -") if turma else serie
+    total = item.get("n_alunos")
+    total_txt = f"Total cadastrado: {total}" if total not in (None, "") else "Total cadastrado: não informado"
+    presentes = ""
+    if item.get("finalizada"):
+        if item.get("n_presentes") is not None:
+            presentes = f"Presentes: {item.get('n_presentes')}"
+        else:
+            presentes = "Presentes: ainda não informado"
+    situacao = "Finalizada" if item.get("finalizada") else "Prevista"
+    prova = "Prova recebida" if item.get("prova_recebida") else "Prova pendente"
+    return [
+        item.get("escola") or "Escola",
+        " · ".join(
+            parte
+            for parte in (item.get("municipio") or "", item.get("data_fmt") or "", item.get("turno") or "")
+            if parte
+        ),
+        serie_txt,
+        " · ".join(parte for parte in ((item.get("rede") or "").title(), total_txt, presentes) if parte),
+        f"{situacao} · {prova}",
+    ]
+
+
+class _PdfAcesso(FPDF):
+    def __init__(self, subtitulo: str):
+        super().__init__(orientation="P", unit="mm", format="A4")
+        self.subtitulo = subtitulo
+        self.set_margins(14, 14, 14)
+        self.set_auto_page_break(auto=True, margin=16)
+
+    def header(self):
+        self.set_font("Helvetica", "B", 13)
+        self.cell(0, 7, _txt("SAETO SRE Gurupi - Minha aplicação"), ln=True)
+        self.set_font("Helvetica", "", 9)
+        self.multi_cell(0, 5, _txt(self.subtitulo))
+        self.ln(2)
+
+    def footer(self):
+        self.set_y(-12)
+        self.set_font("Helvetica", "", 8)
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        self.cell(0, 8, _txt(f"Emitido em {agora}  -  Página {self.page_no()}/{{nb}}"), align="C")
+
+
+def _bloco_acesso(pdf: FPDF, linhas: list[str]) -> None:
+    pdf.set_x(pdf.l_margin)
+    for indice, linha in enumerate(linhas):
+        if not linha:
+            continue
+        if indice == 0:
+            pdf.set_font("Helvetica", "B", 11)
+        else:
+            pdf.set_font("Helvetica", "", 9)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _txt(linha))
+    pdf.ln(2)
+
+
+def gerar_pdf_acesso(aplicador: dict, aplicacoes: list[dict], extras: list[dict]) -> BytesIO:
+    codigo = aplicador.get("codigo") or ""
+    numero = aplicador.get("numero")
+    nome = aplicador.get("nome") or codigo or "Aplicador"
+    cabeca = []
+    if numero not in (None, ""):
+        cabeca.append(f"Aplicador {numero}")
+    if codigo:
+        cabeca.append(str(codigo))
+    cabeca.append(nome)
+    if aplicador.get("cpf_fmt"):
+        cabeca.append(aplicador["cpf_fmt"])
+    pdf = _PdfAcesso(" · ".join(cabeca))
+    pdf.alias_nb_pages()
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 7, _txt(f"Aplicações ({len(aplicacoes)})"), ln=True)
+    pdf.ln(1)
+    if not aplicacoes:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 6, _txt("Nenhuma aplicação atribuída."), ln=True)
+        pdf.ln(2)
+    for item in aplicacoes:
+        _bloco_acesso(pdf, _linha_acesso(item))
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 7, _txt(f"Extra ({len(extras)})"), ln=True)
+    pdf.ln(1)
+    if not extras:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 6, _txt("Nenhuma turma como extra."), ln=True)
+    for item in extras:
+        aluno = item.get("aluno_nome") or ""
+        if aluno and item.get("aluno_necessidade"):
+            aluno = f"{aluno} ({item.get('aluno_necessidade')})"
+        titular = (item.get("titular") or {}).get("nome") or ""
+        linhas = _linha_acesso(item)[:3]
+        if aluno:
+            linhas.append(f"Acompanhar: {aluno}")
+        linhas.append(
+            f"Titular: {titular}" if titular else "A turma ainda não tem aplicador titular."
+        )
+        _bloco_acesso(pdf, linhas)
+    return BytesIO(bytes(pdf.output()))

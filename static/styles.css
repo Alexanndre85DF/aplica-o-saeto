@@ -286,6 +286,19 @@ main { grid-column: 2; grid-row: 1; }
 .login-body > p { margin: 0 0 6px; color: var(--ink-soft); }
 .login-body .btn { width: 100%; margin-top: 6px; }
 
+.dlg-baixa {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 128, 128, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.dlg-baixa .login-win { width: min(420px, 100%); }
+.dlg-baixa .login-body p { margin: 0; }
+
 .cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

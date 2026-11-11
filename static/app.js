@@ -701,18 +701,41 @@ function fmtHora(iso) {
 function cardCampo(item, feita) {
   const quem = item.aplicador ? nomeApl(item.aplicador) : "Sem aplicador";
   const hora = feita && item.finalizado_em ? ` · baixa ${fmtHora(item.finalizado_em)}` : "";
+  const total = item.n_alunos != null && item.n_alunos !== "" ? String(item.n_alunos) : "";
+  const detalhe = `${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno} · ${item.serie}${item.ordem > 1 ? " · " + item.ordem : ""}`;
   return `<article class="item-campo ${feita ? "feita" : ""}">
     <b>${tit(item.escola)}</b>
     <div class="meta">
       ${tit(item.municipio)} · ${fmtData(item.data)} · ${item.turno}<br />
       ${item.serie}${item.ordem > 1 ? " · " + item.ordem : ""} · ${quem}${hora}
-      ${item.n_alunos ? `<br />Total: ${item.n_alunos} estudantes` : ""}
+      ${total ? `<br />Total cadastrado: ${escHtml(total)}` : ""}
       ${feita && item.n_presentes != null ? ` · presentes: ${item.n_presentes}` : ""}
     </div>
-    <button class="btn sm ${feita ? "ghost" : "gold"}" data-baixa="${item.id}" data-feita="${feita ? "1" : "0"}">
+    <button class="btn sm ${feita ? "ghost" : "gold"}" data-baixa="${item.id}" data-feita="${feita ? "1" : "0"}" data-escola="${escHtml(tit(item.escola))}" data-detalhe="${escHtml(detalhe)}" data-total="${escHtml(total)}">
       ${feita ? "Reabrir" : "Dar baixa"}
     </button>
   </article>`;
+}
+
+let baixaAtual = null;
+
+function fecharDlgBaixa() {
+  baixaAtual = null;
+  $("#dlg-baixa").classList.add("hidden");
+}
+
+function abrirDlgBaixa(btn) {
+  baixaAtual = { id: btn.dataset.baixa };
+  $("#dlg-baixa-escola").textContent = btn.dataset.escola || "";
+  $("#dlg-baixa-detalhe").textContent = btn.dataset.detalhe || "";
+  $("#dlg-baixa-total").textContent = btn.dataset.total ? btn.dataset.total : "não informado";
+  const inp = $("#dlg-baixa-n");
+  inp.value = btn.dataset.total || "";
+  inp.removeAttribute("max");
+  $("#dlg-baixa-erro").classList.add("hidden");
+  $("#dlg-baixa").classList.remove("hidden");
+  inp.focus();
+  inp.select();
 }
 
 async function carregarCampo() {
@@ -768,14 +791,44 @@ async function carregarCampo() {
   $$("[data-baixa]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";
+      if (!feita) {
+        abrirDlgBaixa(btn);
+        return;
+      }
+      if (!confirm("Reabrir esta aplicação? Os presentes informados serão apagados.")) return;
       await api(`/api/vagas/${btn.dataset.baixa}/finalizar`, {
         method: "POST",
-        body: JSON.stringify({ finalizada: !feita }),
+        body: JSON.stringify({ finalizada: false }),
       });
       carregarCampo();
     });
   });
 }
+
+$("#dlg-baixa-cancelar").addEventListener("click", fecharDlgBaixa);
+$("#dlg-baixa-x").addEventListener("click", fecharDlgBaixa);
+$("#form-baixa").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!baixaAtual) return;
+  const erro = $("#dlg-baixa-erro");
+  const n = Number($("#dlg-baixa-n").value);
+  if (!Number.isInteger(n) || n < 0) {
+    erro.textContent = "Informe um número inteiro de presentes.";
+    erro.classList.remove("hidden");
+    return;
+  }
+  try {
+    await api(`/api/vagas/${baixaAtual.id}/finalizar`, {
+      method: "POST",
+      body: JSON.stringify({ finalizada: true, n_presentes: n }),
+    });
+    fecharDlgBaixa();
+    carregarCampo();
+  } catch (e) {
+    erro.textContent = e.message;
+    erro.classList.remove("hidden");
+  }
+});
 
 function cardProva(item, recebida) {
   const quem = item.aplicador ? nomeApl(item.aplicador) : "Sem aplicador";

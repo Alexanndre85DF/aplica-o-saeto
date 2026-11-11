@@ -49,7 +49,7 @@ document.getElementById("form-login").addEventListener("submit", async (ev) => {
 });
 
 document.getElementById("btn-pdf").addEventListener("click", () => {
-  window.location.href = "/api/acesso/pdf";
+  window.open("/api/acesso/pdf", "_blank");
 });
 
 document.getElementById("btn-sair").addEventListener("click", async () => {
