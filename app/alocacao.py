@@ -239,6 +239,7 @@ def contar_choques(conn) -> int:
         JOIN escolas e1 ON e1.id = v1.escola_id
         WHERE v1.aplicador_id IS NOT NULL
           AND v1.data IS NOT NULL
+          AND e1.rede = 'MUNICIPAL'
           AND (
             EXISTS (
                 SELECT 1 FROM vagas v2
@@ -246,6 +247,7 @@ def contar_choques(conn) -> int:
                 WHERE v2.aplicador_id = v1.aplicador_id
                   AND v2.id != v1.id
                   AND v2.data = v1.data
+                  AND e2.rede = 'MUNICIPAL'
                   AND (v1.turno = v2.turno OR e1.municipio_id != e2.municipio_id)
             )
           )
@@ -364,7 +366,8 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
         FROM vagas v
         JOIN escolas e ON e.id = v.escola_id
         JOIN municipios m ON m.id = e.municipio_id
-        WHERE v.aplicador_id IS NOT NULL{extra_data}
+        WHERE v.aplicador_id IS NOT NULL
+          AND e.rede = 'MUNICIPAL'{extra_data}
         """,
         params,
     ):
@@ -378,7 +381,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
             JOIN vagas v ON v.id = x.vaga_id
             JOIN escolas e ON e.id = v.escola_id
             JOIN municipios m ON m.id = e.municipio_id
-            WHERE 1=1{extra_data}
+            WHERE e.rede = 'MUNICIPAL'{extra_data}
             """,
             params,
         )
