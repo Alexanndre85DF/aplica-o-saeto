@@ -542,6 +542,19 @@ def _linha_acesso(item: dict) -> list[str]:
         serie_txt,
         " · ".join(parte for parte in ((item.get("rede") or "").title(), total_txt, presentes) if parte),
         f"{situacao} · {prova}",
+        *[
+            " · ".join(
+                parte
+                for parte in (
+                    extra.get("aluno_nome") or "Aluno especial",
+                    extra.get("aluno_necessidade") or "",
+                    f"Extra: {extra.get('nome')}" if extra.get("nome") else "Sem extra vinculado",
+                )
+                if parte
+            )
+            for extra in (item.get("extras") or [])
+            if extra.get("aluno_nome") or extra.get("aluno_necessidade") or extra.get("nome")
+        ],
     ]
 
 

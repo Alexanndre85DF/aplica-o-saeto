@@ -86,9 +86,26 @@ def _publico(pessoa) -> dict:
     }
 
 
+def _extras_da_turma(alunos: list[dict]) -> list[dict]:
+    saida = []
+    for aluno in alunos:
+        if not aluno.get("precisa_extra"):
+            continue
+        pessoa = aluno.get("extra") or {}
+        saida.append(
+            {
+                "nome": pessoa.get("nome") or "",
+                "codigo": pessoa.get("codigo") or "",
+                "aluno_nome": aluno.get("nome") or "",
+                "aluno_necessidade": aluno.get("necessidade") or "",
+            }
+        )
+    return saida
+
+
 def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
     rows = conn.execute(
-        """SELECT v.id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
+        """SELECT v.id, v.escola_id, v.serie, v.turno, v.data, v.ordem, v.status, v.turma, v.n_alunos,
                   v.n_presentes, v.prova_recebida_em,
                   e.nome AS escola, e.codigo AS escola_codigo, e.rede, e.rural,
                   m.nome AS municipio, vi.data_saida, vi.data_retorno
@@ -109,7 +126,19 @@ def minhas_aplicacoes(conn, aplicador_id: int) -> list[dict]:
         item["retorno_fmt"] = fmt_data(item["data_retorno"])
         item["finalizada"] = item["status"] == "FINALIZADA"
         item["prova_recebida"] = bool(item.get("prova_recebida_em"))
+        item["extras"] = []
         lista.append(item)
+    if not lista:
+        return lista
+    try:
+        from .especiais import alunos_das_vagas
+
+        por_aluno = alunos_das_vagas(conn, lista)
+    except Exception:
+        por_aluno = {}
+    for item in lista:
+        item["extras"] = _extras_da_turma(por_aluno.get(item["id"], []))
+        item["n_extras"] = len(item["extras"])
     return lista
 
 

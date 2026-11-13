@@ -119,21 +119,16 @@ let abaAtual = "aplicar";
 
 function htmlExtrasDaTurma(aplicacao) {
   const lista = aplicacao.extras || [];
-  if (!lista.length) {
-    if (aplicacao.n_extras) {
-      return "<br />Nenhum aplicador extra vinculado aos especiais desta turma.";
-    }
-    return "";
-  }
+  if (!lista.length) return "";
   const itens = lista
     .map((extra) => {
-      const aluno = extra.aluno_nome
-        ? ` — ${tit(extra.aluno_nome)}${extra.aluno_necessidade ? " (" + tit(extra.aluno_necessidade) + ")" : ""}`
-        : "";
-      return `<li>${tit(extra.nome)}${aluno}</li>`;
+      const aluno = extra.aluno_nome ? `<b>${tit(extra.aluno_nome)}</b>` : "Aluno especial";
+      const necessidade = extra.aluno_necessidade ? ` · ${tit(extra.aluno_necessidade)}` : "";
+      const quem = extra.nome ? `Extra: ${tit(extra.nome)}` : "Sem extra vinculado";
+      return `<li>${aluno}${necessidade} — ${quem}</li>`;
     })
     .join("");
-  return `<br /><b>Aplicadores extras dos especiais</b><ul class="extras-turma">${itens}</ul>`;
+  return `<br /><b>Alunos com extra</b><ul class="extras-turma">${itens}</ul>`;
 }
 
 async function carregarPainel() {
