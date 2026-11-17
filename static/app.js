@@ -2,6 +2,7 @@ const state = {
   view: "resumo",
   municipioId: null,
   filtroRede: "MUNICIPAL",
+  filtroEscola: 0,
   filtroVago: false,
   filtroStatus: "TODAS",
   campoMun: "",
@@ -966,6 +967,7 @@ async function carregarQuadro() {
   $("#view-quadro").innerHTML = `
     <div class="toolbar">
       <select id="sel-mun">${munOpts}</select>
+      <select id="sel-escola"><option value="0">Todas as escolas</option></select>
       <label><input type="checkbox" id="so-vagos" /> Só vagos</label>
       <select id="sel-status">
         <option value="TODAS">Todas as situações</option>
@@ -993,7 +995,12 @@ async function carregarQuadro() {
   $("#sel-status").value = state.filtroStatus;
   $("#sel-mun").addEventListener("change", (e) => {
     state.municipioId = Number(e.target.value) || 0;
+    state.filtroEscola = 0;
     pintarQuadro();
+  });
+  $("#sel-escola").addEventListener("change", (e) => {
+    state.filtroEscola = Number(e.target.value) || 0;
+    if (state._ultimoQuadro) pintarQuadro(state._ultimoQuadro);
   });
   $("#so-vagos").addEventListener("change", (e) => {
     state.filtroVago = e.target.checked;
@@ -1038,6 +1045,7 @@ async function carregarQuadro() {
   const qsRelatorioQuadro = () => {
     const qs = new URLSearchParams();
     if (state.municipioId) qs.set("municipio_id", String(state.municipioId));
+    if (state.filtroEscola) qs.set("escola_id", String(state.filtroEscola));
     qs.set("rede", state.filtroRede || "TODAS");
     if (state.filtroVago) qs.set("so_vagos", "1");
     qs.set("status", state.filtroStatus || "TODAS");
@@ -1323,8 +1331,41 @@ function ligarPeriodoQuadro() {
   });
 }
 
+function escolasDoQuadro(q) {
+  const blocos = q && q.todos ? q.quadros || [] : [q || {}];
+  const mapa = new Map();
+  for (const bloco of blocos) {
+    const mun = q && q.todos ? (bloco.municipio && bloco.municipio.nome) || "" : "";
+    for (const l of bloco.linhas || []) {
+      if (l.rede && l.rede !== "MUNICIPAL") continue;
+      if (!l.escola_id || mapa.has(l.escola_id)) continue;
+      mapa.set(l.escola_id, mun ? `${l.escola} — ${mun}` : l.escola);
+    }
+  }
+  return [...mapa.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]), "pt"));
+}
+
+function atualizarSelectEscola(q) {
+  const sel = $("#sel-escola");
+  if (!sel) return;
+  const escolas = escolasDoQuadro(q);
+  if (state.filtroEscola && !escolas.some(([id]) => Number(id) === Number(state.filtroEscola))) {
+    state.filtroEscola = 0;
+  }
+  sel.innerHTML = [`<option value="0">Todas as escolas</option>`]
+    .concat(
+      escolas.map(
+        ([id, nome]) =>
+          `<option value="${id}" ${Number(id) === Number(state.filtroEscola) ? "selected" : ""}>${tit(nome)}</option>`
+      )
+    )
+    .join("");
+}
+
 function filtrarLinhasQuadro(q) {
   return (q.linhas || []).filter((l) => {
+    if (l.rede && l.rede !== "MUNICIPAL") return false;
+    if (state.filtroEscola && Number(l.escola_id) !== Number(state.filtroEscola)) return false;
     if (state.filtroRede !== "TODAS" && l.rede !== state.filtroRede) return false;
     if (state.filtroVago) {
       return q.datas.some((d) => (l.celulas[d] || []).some((s) => s.vago));
@@ -1413,8 +1454,10 @@ async function pintarQuadro(preloaded = null) {
   }
   const q = preloaded ? await preloaded : await api(quadroUrl());
   state._ultimoQuadro = q;
+  atualizarSelectEscola(q);
   if (q.todos) {
     const blocos = (q.quadros || [])
+      .filter((bloco) => !state.filtroEscola || filtrarLinhasQuadro(bloco).length)
       .map((bloco) => `
         <section class="quadro-mun">
           <section class="panel" style="margin-bottom:10px">

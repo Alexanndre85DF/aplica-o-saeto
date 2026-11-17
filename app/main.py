@@ -1080,6 +1080,7 @@ def quadro_pdf(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
+    escola_id: int | None = None,
 ):
     dados = quadro(municipio_id)
     if dados.get("todos"):
@@ -1092,6 +1093,7 @@ def quadro_pdf(
         rede=rede or "TODAS",
         so_vagos=so_vagos,
         status=status or "TODAS",
+        escola_id=escola_id,
     )
     return StreamingResponse(
         bio,
@@ -1106,6 +1108,7 @@ def quadro_xlsx(
     rede: str = "TODAS",
     so_vagos: bool = False,
     status: str = "TODAS",
+    escola_id: int | None = None,
 ):
     dados = quadro(municipio_id)
     if dados.get("todos"):
@@ -1118,6 +1121,7 @@ def quadro_xlsx(
         rede=rede or "TODAS",
         so_vagos=so_vagos,
         status=status or "TODAS",
+        escola_id=escola_id,
     )
     return StreamingResponse(
         bio,
