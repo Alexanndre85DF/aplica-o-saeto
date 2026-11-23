@@ -68,6 +68,8 @@ from .relatorio import (
     gerar_pdf_acesso,
     gerar_pdf_baixas,
     gerar_pdf_pendentes,
+    gerar_xlsx_baixas,
+    gerar_xlsx_pendentes,
     gerar_pdf_diarias,
     gerar_xlsx_diarias,
     gerar_pdf_quadro,
@@ -565,6 +567,39 @@ def acompanhamento_pdf(
         bio,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{nome}"'},
+    )
+
+
+@app.get("/api/acompanhamento/xlsx")
+def acompanhamento_xlsx(
+    municipio_id: int | None = None,
+    data: str | None = None,
+    situacao: str = "baixas",
+):
+    dados = acompanhamento(municipio_id=municipio_id, data=data)
+    if municipio_id:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT nome FROM municipios WHERE id = ?", (municipio_id,)
+            ).fetchone()
+        nome_mun = row["nome"] if row else "Município"
+    else:
+        nome_mun = "Todos os municípios"
+    dia = fmt_data(data) if data else "Todos os dias"
+    pendentes = situacao == "pendentes"
+    itens = dados["pendentes"] if pendentes else dados["aplicadas"]
+    rotulo = f"{len(itens)} pendente(s)" if pendentes else f"{len(itens)} baixa(s)"
+    filtros = f"{nome_mun}  -  {dia}  -  {rotulo}"
+    bio = (
+        gerar_xlsx_pendentes(itens, filtros)
+        if pendentes
+        else gerar_xlsx_baixas(itens, filtros)
+    )
+    nome = "pendentes-acompanhamento.xlsx" if pendentes else "baixas-acompanhamento.xlsx"
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
 
 

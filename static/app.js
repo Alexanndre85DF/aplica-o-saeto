@@ -775,6 +775,8 @@ async function carregarCampo() {
       <button class="btn ghost" id="btn-atualizar-campo">Atualizar</button>
       <button class="btn" id="btn-pdf-pendentes">PDF pendentes</button>
       <button class="btn gold" id="btn-pdf-campo">PDF das baixas</button>
+      <button class="btn" id="btn-xlsx-pendentes">Excel pendentes</button>
+      <button class="btn gold" id="btn-xlsx-campo">Excel das baixas</button>
     </div>
     ${d.contagem.livres ? `<p class="escola-meta" style="margin-bottom:12px">${d.contagem.livres} aplicação(ões) ainda sem aplicador neste filtro.</p>` : ""}
     <div class="colunas-campo">
@@ -808,6 +810,15 @@ async function carregarCampo() {
   };
   $("#btn-pdf-pendentes").onclick = () => abrirPdfCampo("pendentes");
   $("#btn-pdf-campo").onclick = () => abrirPdfCampo("baixas");
+  const abrirExcelCampo = (situacao) => {
+    const excelQs = new URLSearchParams();
+    if (state.campoMun) excelQs.set("municipio_id", state.campoMun);
+    if (state.campoData) excelQs.set("data", state.campoData);
+    excelQs.set("situacao", situacao);
+    window.location.href = `/api/acompanhamento/xlsx?${excelQs.toString()}`;
+  };
+  $("#btn-xlsx-pendentes").onclick = () => abrirExcelCampo("pendentes");
+  $("#btn-xlsx-campo").onclick = () => abrirExcelCampo("baixas");
   $$("[data-baixa]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const feita = btn.dataset.feita === "1";

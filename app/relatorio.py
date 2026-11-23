@@ -840,3 +840,93 @@ def gerar_pdf_pendentes(itens: list[dict], filtros: str) -> BytesIO:
         vazio="Nada pendente neste filtro.",
         com_baixa=False,
     )
+
+
+def _valores_acompanhamento(item: dict, com_baixa: bool) -> list[str]:
+    aplicador = item.get("aplicador") or {}
+    nome = aplicador.get("nome") or aplicador.get("codigo") or "Sem aplicador"
+    total = item.get("n_alunos")
+    presentes = item.get("n_presentes")
+    valores = [
+        _tit_pdf(item.get("municipio")),
+        _tit_pdf(item.get("escola")),
+        fmt_data(item.get("data")) if item.get("data") else "—",
+        item.get("turno") or "",
+        _rotulo_turma_pdf(item),
+        _tit_pdf(nome),
+    ]
+    if com_baixa:
+        valores.append(_hora_baixa(item.get("finalizado_em")))
+    valores.append("" if total in (None, "") else str(total))
+    if com_baixa:
+        valores.append("" if presentes is None else str(presentes))
+    return valores
+
+
+def _xlsx_acompanhamento(
+    itens: list[dict],
+    filtros: str,
+    *,
+    titulo: str,
+    colunas: list[tuple[int, str]],
+    com_baixa: bool,
+) -> BytesIO:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = titulo[:31]
+    borda = Border(
+        left=Side(style="thin", color="808080"),
+        right=Side(style="thin", color="808080"),
+        top=Side(style="thin", color="808080"),
+        bottom=Side(style="thin", color="808080"),
+    )
+    cabecalho = PatternFill("solid", fgColor="000080")
+    fonte_cab = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+    fonte = Font(name="Calibri", size=10)
+    ws["A1"] = titulo
+    ws["A1"].font = Font(bold=True, name="Calibri", size=14)
+    ws["A2"] = filtros
+    ws.append([])
+    ws.append([nome for _, nome in colunas])
+    for celula in ws[4]:
+        celula.font = fonte_cab
+        celula.fill = cabecalho
+        celula.border = borda
+        celula.alignment = Alignment(horizontal="center")
+    if not itens:
+        ws.append(["Nenhum registro neste filtro."])
+    for item in itens:
+        ws.append(_valores_acompanhamento(item, com_baixa))
+    for linha in ws.iter_rows(min_row=5, max_row=ws.max_row, max_col=len(colunas)):
+        for celula in linha:
+            celula.font = fonte
+            celula.border = borda
+            celula.alignment = Alignment(vertical="center", wrap_text=True)
+    for indice, (largura, _) in enumerate(colunas, start=1):
+        ws.column_dimensions[ws.cell(row=4, column=indice).column_letter].width = max(12, largura / 2)
+    ws.auto_filter.ref = f"A4:{ws.cell(row=4, column=len(colunas)).column_letter}4"
+    ws.freeze_panes = "A5"
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
+
+
+def gerar_xlsx_baixas(itens: list[dict], filtros: str) -> BytesIO:
+    return _xlsx_acompanhamento(
+        itens,
+        filtros,
+        titulo="Deram baixa",
+        colunas=COLS_BAIXA,
+        com_baixa=True,
+    )
+
+
+def gerar_xlsx_pendentes(itens: list[dict], filtros: str) -> BytesIO:
+    return _xlsx_acompanhamento(
+        itens,
+        filtros,
+        titulo="Pendentes",
+        colunas=COLS_PENDENTES,
+        com_baixa=False,
+    )
