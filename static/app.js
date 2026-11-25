@@ -1309,7 +1309,7 @@ async function salvarPeriodoMunicipio(limpar) {
     alert("Inclua pelo menos um dia, ou clique em Tirar todos os dias.");
     return;
   }
-  if (limpar && !confirm("Tirar os dias deste município? As colunas saem do quadro e as aplicações voltam para Sem data.")) {
+  if (limpar && !confirm("Tirar os dias desta rede neste município? As colunas saem do quadro e as aplicações desta rede voltam para Sem data.")) {
     return;
   }
   await api(`/api/municipios/${state.municipioId}`, {

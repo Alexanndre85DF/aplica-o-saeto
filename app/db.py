@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS viagens (
     municipio_id INTEGER NOT NULL UNIQUE REFERENCES municipios(id),
     data_saida TEXT,
     data_retorno TEXT,
-    dias_aplicacao TEXT
+    dias_aplicacao TEXT,
+    dias_estadual TEXT
 );
 
 CREATE TABLE IF NOT EXISTS vagas (
@@ -153,7 +154,8 @@ CREATE TABLE IF NOT EXISTS viagens (
     municipio_id BIGINT NOT NULL UNIQUE REFERENCES municipios(id),
     data_saida TEXT,
     data_retorno TEXT,
-    dias_aplicacao TEXT
+    dias_aplicacao TEXT,
+    dias_estadual TEXT
 );
 
 CREATE TABLE IF NOT EXISTS vagas (
@@ -667,6 +669,7 @@ def _ensure_colunas_postgres(conn) -> None:
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS prova_recebida_em TEXT",
         "ALTER TABLE vagas ADD COLUMN IF NOT EXISTS n_extras INTEGER DEFAULT 0",
         "ALTER TABLE viagens ADD COLUMN IF NOT EXISTS dias_aplicacao TEXT",
+        "ALTER TABLE viagens ADD COLUMN IF NOT EXISTS dias_estadual TEXT",
         "ALTER TABLE vagas ALTER COLUMN origem_linha TYPE BIGINT",
         "CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id)",
         "CREATE INDEX IF NOT EXISTS idx_vagas_aplicador_data ON vagas(aplicador_id, data, turno)",
@@ -904,6 +907,8 @@ def ensure_colunas(conn) -> None:
         vicols = {row[1] for row in conn.execute("PRAGMA table_info(viagens)")}
         if "dias_aplicacao" not in vicols:
             conn.execute("ALTER TABLE viagens ADD COLUMN dias_aplicacao TEXT")
+        if "dias_estadual" not in vicols:
+            conn.execute("ALTER TABLE viagens ADD COLUMN dias_estadual TEXT")
     except Exception:
         pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_vagas_escola ON vagas(escola_id)")
@@ -1059,7 +1064,7 @@ def _migrar_sqlite_se_postgres_vazio() -> None:
                     src,
                     pg,
                     "viagens",
-                    ["id", "municipio_id", "data_saida", "data_retorno", "dias_aplicacao"],
+                    ["id", "municipio_id", "data_saida", "data_retorno", "dias_aplicacao", "dias_estadual"],
                 )
             if "vagas" in tabelas:
                 _copiar_tabela(

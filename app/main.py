@@ -688,14 +688,14 @@ def municipios():
         rows = rows_to_dicts(
             conn.execute(
                 """SELECT m.*,
-                          v.data_saida, v.data_retorno, v.dias_aplicacao,
+                          v.data_saida, v.data_retorno, v.dias_aplicacao, v.dias_estadual,
                           COUNT(vg.id) AS vagas,
                           COALESCE(SUM(CASE WHEN vg.id IS NOT NULL AND vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
                    LEFT JOIN escolas e ON e.municipio_id = m.id AND e.rede = ?
                    LEFT JOIN vagas vg ON vg.escola_id = e.id
-                   GROUP BY m.id, m.nome, v.data_saida, v.data_retorno, v.dias_aplicacao
+                   GROUP BY m.id, m.nome, v.data_saida, v.data_retorno, v.dias_aplicacao, v.dias_estadual
                    ORDER BY m.nome""",
                 (rede_atual(),),
             )
@@ -1092,7 +1092,7 @@ def quadro(municipio_id: int | None = None):
     with get_db() as conn:
         if municipio_id:
             mun = conn.execute(
-                """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
+                """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao, v.dias_estadual
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
                    WHERE m.id = ?""",
@@ -1110,7 +1110,7 @@ def quadro(municipio_id: int | None = None):
             return {**_montar_quadro_de_vagas(row_to_dict(mun), enriquecidas), "todos": False}
 
         municipios = conn.execute(
-            """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
+            """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao, v.dias_estadual
                FROM municipios m
                LEFT JOIN viagens v ON v.municipio_id = m.id
                ORDER BY m.nome"""

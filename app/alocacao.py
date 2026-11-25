@@ -1060,7 +1060,7 @@ def _ordem_vaga(vaga) -> int:
 
 def _viagem_municipio(conn, municipio_id: int):
     return conn.execute(
-        "SELECT data_saida, data_retorno, dias_aplicacao FROM viagens WHERE municipio_id = ?",
+        "SELECT data_saida, data_retorno, dias_aplicacao, dias_estadual FROM viagens WHERE municipio_id = ?",
         (municipio_id,),
     ).fetchone()
 

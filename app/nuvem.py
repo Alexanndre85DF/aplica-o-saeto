@@ -10,7 +10,7 @@ TABELAS = [
     ("municipios", ["id", "nome"]),
     ("escolas", ["id", "codigo", "nome", "municipio_id", "rede", "rural"]),
     ("aplicadores", ["id", "codigo", "nome", "cpf", "numero", "acesso_token", "ativo", "tipo", "matricula"]),
-    ("viagens", ["id", "municipio_id", "data_saida", "data_retorno", "dias_aplicacao"]),
+    ("viagens", ["id", "municipio_id", "data_saida", "data_retorno", "dias_aplicacao", "dias_estadual"]),
     ("vagas", [
         "id",
         "escola_id",

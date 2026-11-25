@@ -150,6 +150,14 @@ def normalizar_dias(valores) -> list[str]:
 def dias_do_municipio(row) -> list[str]:
     if not row:
         return []
+    if rede_atual() == REDE_ESTADUAL:
+        try:
+            extras = row["dias_estadual"]
+        except (KeyError, TypeError, IndexError):
+            extras = None
+        if extras is None and isinstance(row, dict):
+            extras = row.get("dias_estadual")
+        return normalizar_dias(extras)
     try:
         extras = row["dias_aplicacao"]
     except (KeyError, TypeError):

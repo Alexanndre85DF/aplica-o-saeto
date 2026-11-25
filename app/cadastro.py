@@ -6,12 +6,14 @@ import unicodedata
 from datetime import date, timedelta
 
 from .regras import (
+    REDE_ESTADUAL,
     REDES,
     TURNOS,
     dias_do_municipio,
     eh_segundo_ano_dia1,
     normalizar_dias,
     normalizar_serie,
+    rede_atual,
     normalizar_texto,
     normalizar_turno,
     periodo_dias,
@@ -177,11 +179,32 @@ def criar_municipio(conn, nome: str, data_saida=None, data_retorno=None, dias=No
     return obter_municipio(conn, municipio_id)
 
 
+def _gravar_dias_estadual(conn, municipio_id: int, dias) -> None:
+    lista = normalizar_dias(dias) if dias else []
+    bruto = json.dumps(lista) if lista else None
+    existe = conn.execute(
+        "SELECT 1 FROM viagens WHERE municipio_id = ?", (municipio_id,)
+    ).fetchone()
+    if existe:
+        conn.execute(
+            "UPDATE viagens SET dias_estadual = ? WHERE municipio_id = ?",
+            (bruto, municipio_id),
+        )
+        return
+    conn.execute(
+        """INSERT INTO viagens(municipio_id, data_saida, data_retorno, dias_aplicacao, dias_estadual)
+           VALUES (?, NULL, NULL, NULL, ?)""",
+        (municipio_id, bruto),
+    )
+
+
 def _limpar_datas_vagas_municipio(conn, municipio_id: int) -> None:
     conn.execute(
         """UPDATE vagas SET data = NULL
-           WHERE escola_id IN (SELECT id FROM escolas WHERE municipio_id = ?)""",
-        (municipio_id,),
+           WHERE escola_id IN (
+               SELECT id FROM escolas WHERE municipio_id = ? AND rede = ?
+           )""",
+        (municipio_id, rede_atual()),
     )
 
 
@@ -207,7 +230,19 @@ def atualizar_municipio(
         "SELECT data_saida, data_retorno, dias_aplicacao FROM viagens WHERE municipio_id = ?",
         (municipio_id,),
     ).fetchone()
-    if dias is not UNSET or data_saida is not UNSET or data_retorno is not UNSET:
+    if rede_atual() == REDE_ESTADUAL and (
+        dias is not UNSET or data_saida is not UNSET or data_retorno is not UNSET
+    ):
+        if dias is not UNSET:
+            lista = normalizar_dias(dias)
+        else:
+            saida = _data_iso(data_saida) if data_saida is not UNSET else None
+            retorno = _data_iso(data_retorno) if data_retorno is not UNSET else saida
+            lista = periodo_dias(saida, retorno)
+        _gravar_dias_estadual(conn, municipio_id, lista)
+        if not lista:
+            limpar_datas_vagas = True
+    elif dias is not UNSET or data_saida is not UNSET or data_retorno is not UNSET:
         if dias is not UNSET:
             lista = normalizar_dias(dias)
             saida = lista[0] if lista else None
@@ -253,7 +288,7 @@ def excluir_municipio(conn, municipio_id: int) -> None:
 
 def obter_municipio(conn, municipio_id: int) -> dict:
     row = conn.execute(
-        """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao
+        """SELECT m.*, v.data_saida, v.data_retorno, v.dias_aplicacao, v.dias_estadual
            FROM municipios m
            LEFT JOIN viagens v ON v.municipio_id = m.id
            WHERE m.id = ?""",
