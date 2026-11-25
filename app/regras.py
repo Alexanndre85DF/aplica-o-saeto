@@ -2,16 +2,35 @@ from __future__ import annotations
 
 import json
 import re
+from contextvars import ContextVar, Token
 from datetime import date, datetime, timedelta
 
 REDE_MUNICIPAL = "MUNICIPAL"
 REDE_ESTADUAL = "ESTADUAL"
 REDE_CONVENIADA = "CONVENIADA"
 REDES = (REDE_MUNICIPAL, REDE_ESTADUAL, REDE_CONVENIADA)
+REDES_PORTAL = (REDE_MUNICIPAL, REDE_ESTADUAL)
+_rede_ativa: ContextVar[str] = ContextVar("saeto_rede_ativa", default=REDE_MUNICIPAL)
 
 TURNOS = ("MATUTINO", "VESPERTINO", "INTEGRAL", "NOTURNO")
 ANO_CAMPANHA = 2026
 MES_CAMPANHA = 11
+
+
+def definir_rede(rede: str | None) -> Token:
+    valor = normalizar_texto(rede).upper()
+    if valor not in REDES_PORTAL:
+        valor = REDE_MUNICIPAL
+    return _rede_ativa.set(valor)
+
+
+def reset_rede(token: Token) -> None:
+    _rede_ativa.reset(token)
+
+
+def rede_atual() -> str:
+    valor = _rede_ativa.get()
+    return valor if valor in REDES_PORTAL else REDE_MUNICIPAL
 
 
 def normalizar_texto(valor) -> str:

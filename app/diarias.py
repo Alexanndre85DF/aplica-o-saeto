@@ -8,7 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from .cadastro import _eh_placeholder, chave_municipio
-from .regras import periodo_dias
+from .regras import periodo_dias, rede_atual
 
 VALOR_PADRAO = Decimal("189")
 SEDE = "GURUPI"
@@ -122,7 +122,8 @@ def _ocupacoes(conn) -> list[dict]:
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
            JOIN municipios m ON m.id = e.municipio_id
-           WHERE v.aplicador_id IS NOT NULL AND e.rede = 'MUNICIPAL'"""
+           WHERE v.aplicador_id IS NOT NULL AND e.rede = ?""",
+        (rede_atual(),),
     ).fetchall()
     extras = []
     try:
@@ -133,7 +134,8 @@ def _ocupacoes(conn) -> list[dict]:
                JOIN vagas v ON v.id = x.vaga_id
                JOIN escolas e ON e.id = v.escola_id
                JOIN municipios m ON m.id = e.municipio_id
-               WHERE e.rede = 'MUNICIPAL'"""
+               WHERE e.rede = ?""",
+            (rede_atual(),),
         ).fetchall()
     except Exception:
         extras = []

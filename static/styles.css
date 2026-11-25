@@ -163,6 +163,7 @@ main,
 }
 .nav-btn:hover { background: var(--face-mid); }
 .nav-btn:active { box-shadow: var(--sunken); }
+.nav-trocar { margin-top: 12px; }
 .nav-btn.ativo {
   background: var(--title);
   color: #fff;
@@ -285,6 +286,47 @@ main { grid-column: 2; grid-row: 1; }
 }
 .login-body > p { margin: 0 0 6px; color: var(--ink-soft); }
 .login-body .btn { width: 100%; margin-top: 6px; }
+
+.portal-overlay { z-index: 70; }
+.portal-win { width: min(760px, 100%); }
+.portal-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.portal-card {
+  text-align: left;
+  background: var(--face);
+  color: var(--ink);
+  border: 0;
+  padding: 14px;
+  cursor: pointer;
+  box-shadow: var(--raised);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 190px;
+  font: inherit;
+}
+.portal-card:hover { background: var(--face-mid); }
+.portal-card:active { box-shadow: var(--sunken); }
+.portal-card strong { font-size: 22px; }
+.portal-nums {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 400;
+}
+.portal-entrar {
+  margin-top: auto;
+  font-weight: 700;
+  color: var(--title);
+}
+@media (max-width: 700px) {
+  .portal-cards { grid-template-columns: 1fr; }
+}
 
 .dlg-baixa {
   position: fixed;

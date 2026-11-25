@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SAETO · Aplicação SRE Gurupi</title>
-  <link rel="stylesheet" href="/static/styles.css?v=win98-15" />
+  <link rel="stylesheet" href="/static/styles.css?v=win98-16" />
 </head>
 <body>
   <aside class="sidebar">
@@ -21,6 +21,7 @@
       <div class="brand">
         <span class="brand-kicker">SRE Gurupi · 2026</span>
         <strong>Menu principal</strong>
+        <span class="brand-kicker" id="marca-rede">Rede municipal</span>
       </div>
       <nav>
         <button class="nav-btn ativo" data-view="resumo">Visão geral</button>
@@ -31,6 +32,7 @@
         <button class="nav-btn" data-view="aplicadores">Aplicadores</button>
         <button class="nav-btn" data-view="diarias">Diárias</button>
         <button class="nav-btn" data-view="escolas">Escolas</button>
+        <button type="button" class="nav-btn nav-trocar" id="btn-trocar-rede">Trocar rede</button>
       </nav>
     </div>
   </aside>
@@ -99,6 +101,40 @@
     <span class="tray"><span id="relogio">00:00</span></span>
   </footer>
 
+  <div id="tela-rede" class="login-overlay portal-overlay hidden">
+    <section class="win portal-win">
+      <div class="win-title">
+        <span class="win-icon" aria-hidden="true"></span>
+        <span>Escolha a rede — SAETO</span>
+        <span class="win-controls" aria-hidden="true">
+          <span class="win-ctrl">_</span>
+          <span class="win-ctrl">□</span>
+          <span class="win-ctrl close">×</span>
+        </span>
+      </div>
+      <div class="login-body">
+        <p class="kicker">SRE Gurupi · 2026</p>
+        <h1>Municipal e estadual, separados</h1>
+        <p>O que já está no sistema aparece em cada lado. Escolas, vagas, acompanhamento e diárias não se misturam.</p>
+        <div class="portal-cards">
+          <button type="button" class="portal-card" id="btn-rede-municipal">
+            <span class="kicker">Entrar em</span>
+            <strong>Municipal</strong>
+            <span class="portal-nums" id="nums-municipal">Lendo…</span>
+            <span class="portal-entrar">Abrir a rede municipal</span>
+          </button>
+          <button type="button" class="portal-card" id="btn-rede-estadual">
+            <span class="kicker">Entrar em</span>
+            <strong>Estadual</strong>
+            <span class="portal-nums" id="nums-estadual">Lendo…</span>
+            <span class="portal-entrar">Abrir a rede estadual</span>
+          </button>
+        </div>
+        <button type="button" class="btn ghost" id="btn-sair-portal">Sair</button>
+      </div>
+    </section>
+  </div>
+
   <div id="tela-admin-login" class="login-overlay">
     <section class="win login-win">
       <div class="win-title">
@@ -148,6 +184,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=win98-48"></script>
+  <script src="/static/app.js?v=win98-49"></script>
 </body>
 </html>

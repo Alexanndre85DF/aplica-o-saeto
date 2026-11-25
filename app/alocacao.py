@@ -10,6 +10,7 @@ from .regras import (
     dias_do_municipio,
     eh_segundo_ano_dia1,
     eh_segundo_ano_dia2,
+    rede_atual,
     serie_par_segundo_ano,
     turnos_sobrepoem,
 )
@@ -225,13 +226,15 @@ def enriquecer_vagas(conn, vagas: list[dict], agenda: dict | None = None) -> lis
     return vagas
 
 
-_CHOQUE_CACHE = {"em": 0.0, "n": 0}
+_CHOQUE_CACHE: dict[str, tuple[float, int]] = {}
 
 
-def contar_choques(conn) -> int:
+def contar_choques(conn, rede: str | None = None) -> int:
+    escolhida = rede if rede in ("MUNICIPAL", "ESTADUAL") else rede_atual()
     agora = datetime.now(timezone.utc).timestamp()
-    if agora - _CHOQUE_CACHE["em"] < 45:
-        return _CHOQUE_CACHE["n"]
+    salvo = _CHOQUE_CACHE.get(escolhida)
+    if salvo and agora - salvo[0] < 45:
+        return salvo[1]
     row = conn.execute(
         """
         SELECT COUNT(DISTINCT v1.id) AS n
@@ -239,7 +242,7 @@ def contar_choques(conn) -> int:
         JOIN escolas e1 ON e1.id = v1.escola_id
         WHERE v1.aplicador_id IS NOT NULL
           AND v1.data IS NOT NULL
-          AND e1.rede = 'MUNICIPAL'
+          AND e1.rede = ?
           AND (
             EXISTS (
                 SELECT 1 FROM vagas v2
@@ -247,15 +250,15 @@ def contar_choques(conn) -> int:
                 WHERE v2.aplicador_id = v1.aplicador_id
                   AND v2.id != v1.id
                   AND v2.data = v1.data
-                  AND e2.rede = 'MUNICIPAL'
+                  AND e2.rede IN ('MUNICIPAL', 'ESTADUAL')
                   AND (v1.turno = v2.turno OR e1.municipio_id != e2.municipio_id)
             )
           )
-        """
+        """,
+        (escolhida,),
     ).fetchone()
     n = int((row["n"] if row else 0) or 0)
-    _CHOQUE_CACHE["em"] = agora
-    _CHOQUE_CACHE["n"] = n
+    _CHOQUE_CACHE[escolhida] = (agora, n)
     return n
 
 
@@ -367,7 +370,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
         JOIN escolas e ON e.id = v.escola_id
         JOIN municipios m ON m.id = e.municipio_id
         WHERE v.aplicador_id IS NOT NULL
-          AND e.rede = 'MUNICIPAL'{extra_data}
+          AND e.rede IN ('MUNICIPAL', 'ESTADUAL'){extra_data}
         """,
         params,
     ):
@@ -381,7 +384,7 @@ def _agenda_ocupadas(conn, datas: set | None = None) -> dict[int, list[dict]]:
             JOIN vagas v ON v.id = x.vaga_id
             JOIN escolas e ON e.id = v.escola_id
             JOIN municipios m ON m.id = e.municipio_id
-            WHERE e.rede = 'MUNICIPAL'{extra_data}
+            WHERE e.rede IN ('MUNICIPAL', 'ESTADUAL'){extra_data}
             """,
             params,
         )
@@ -1116,8 +1119,8 @@ def _carga_dia(conn, municipio_id: int, dia: str) -> int:
     return conn.execute(
         """SELECT COUNT(*) n FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL' AND v.data = ?""",
-        (municipio_id, dia),
+           WHERE e.municipio_id = ? AND e.rede = ? AND v.data = ?""",
+        (municipio_id, rede_atual(), dia),
     ).fetchone()["n"]
 
 
@@ -1129,9 +1132,9 @@ def _preencher_datas_faltantes(conn, municipio_id: int) -> None:
         """SELECT v.*, e.municipio_id
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL' AND (v.data IS NULL OR v.data = '')
+           WHERE e.municipio_id = ? AND e.rede = ? AND (v.data IS NULL OR v.data = '')
            ORDER BY CASE WHEN v.serie LIKE '%DIA 2%' THEN 1 ELSE 0 END, v.id""",
-        (municipio_id,),
+        (municipio_id, rede_atual()),
     ).fetchall()
     for vaga in vagas:
         item = dict(vaga)
@@ -1155,17 +1158,17 @@ def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
         for r in conn.execute(
             """SELECT DISTINCT v.data FROM vagas v
                JOIN escolas e ON e.id = v.escola_id
-               WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL' AND v.data IS NOT NULL AND v.data != ''
+               WHERE e.municipio_id = ? AND e.rede = ? AND v.data IS NOT NULL AND v.data != ''
                ORDER BY v.data""",
-            (municipio_id,),
+            (municipio_id, rede_atual()),
         )
     ]
     mapa = {antiga: periodo[min(i, len(periodo) - 1)] for i, antiga in enumerate(antigas)}
     vagas = conn.execute(
         """SELECT v.id, v.data FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL'""",
-        (municipio_id,),
+           WHERE e.municipio_id = ? AND e.rede = ?""",
+        (municipio_id, rede_atual()),
     ).fetchall()
     if not vagas:
         return 0
@@ -1182,8 +1185,8 @@ def redistribuir_datas_municipio(conn, municipio_id: int) -> int:
         """SELECT v.id, v.escola_id, v.turno, v.ordem, v.serie, v.data
            FROM vagas v
            JOIN escolas e ON e.id = v.escola_id
-           WHERE e.municipio_id = ? AND e.rede = 'MUNICIPAL'""",
-        (municipio_id,),
+           WHERE e.municipio_id = ? AND e.rede = ?""",
+        (municipio_id, rede_atual()),
     ).fetchall()
     for vaga in pares:
         if not eh_segundo_ano_dia1(vaga["serie"]) or not vaga["data"]:
@@ -1207,8 +1210,8 @@ def organizar(
     aplicador_ids: list[int] | None = None,
     nova_rodada: bool = False,
 ) -> dict:
-    params = []
-    filtro = " AND e.rede = 'MUNICIPAL'"
+    params = [rede_atual()]
+    filtro = " AND e.rede = ?"
     if municipio_id:
         filtro += " AND e.municipio_id = ?"
         params.append(municipio_id)

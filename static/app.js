@@ -1,5 +1,6 @@
 const state = {
   view: "resumo",
+  redeAtiva: "MUNICIPAL",
   municipioId: null,
   filtroRede: "MUNICIPAL",
   filtroEscola: 0,
@@ -110,7 +111,10 @@ function badgeRede(rede) {
 }
 
 $$(".nav-btn").forEach((btn) => {
-  btn.addEventListener("click", () => mostrarView(btn.dataset.view));
+  btn.addEventListener("click", () => {
+    if (!btn.dataset.view) return;
+    mostrarView(btn.dataset.view);
+  });
 });
 
 async function atualizarQuadroSeAberto() {
@@ -608,8 +612,12 @@ async function abrirVaga(vagaId) {
   });
 }
 
+function rotuloRede() {
+  return state.redeAtiva === "ESTADUAL" ? "estadual" : "municipal";
+}
+
 async function carregarResumo() {
-  titulo("Visão geral", "Demanda da SRE Gurupi e ocupação da escala.");
+  titulo("Visão geral", `Demanda da rede ${rotuloRede()} e ocupação da escala.`);
   const r = await api("/api/resumo");
   const pct = r.vagas ? Math.round((r.ocupadas / r.vagas) * 100) : 0;
   const pendentes = Math.max(0, (r.ocupadas || 0) - (r.finalizadas || 0));
@@ -1348,7 +1356,7 @@ function escolasDoQuadro(q) {
   for (const bloco of blocos) {
     const mun = q && q.todos ? (bloco.municipio && bloco.municipio.nome) || "" : "";
     for (const l of bloco.linhas || []) {
-      if (l.rede && l.rede !== "MUNICIPAL") continue;
+      if (l.rede && l.rede !== state.redeAtiva) continue;
       if (!l.escola_id || mapa.has(l.escola_id)) continue;
       mapa.set(l.escola_id, mun ? `${l.escola} — ${mun}` : l.escola);
     }
@@ -1375,7 +1383,7 @@ function atualizarSelectEscola(q) {
 
 function filtrarLinhasQuadro(q) {
   return (q.linhas || []).filter((l) => {
-    if (l.rede && l.rede !== "MUNICIPAL") return false;
+    if (l.rede && l.rede !== state.redeAtiva) return false;
     if (state.filtroEscola && Number(l.escola_id) !== Number(state.filtroEscola)) return false;
     if (state.filtroRede !== "TODAS" && l.rede !== state.filtroRede) return false;
     if (state.filtroVago) {
@@ -1955,7 +1963,7 @@ async function carregarDiarias() {
 }
 
 async function carregarEscolas() {
-  titulo("Escolas", "Só a rede municipal. Escola estadual fica de fora.");
+  titulo("Escolas", `Só a rede ${rotuloRede()}.`);
   const lista = await api("/api/escolas");
   $("#view-escolas").innerHTML = `
     <div class="toolbar">
@@ -2253,7 +2261,7 @@ async function carregarCadastro() {
             municipio_id: Number(f.municipio_id.value),
             nome: f.nome.value,
             codigo: f.codigo.value || null,
-            rede: "MUNICIPAL",
+            rede: state.redeAtiva || "MUNICIPAL",
             rural: f.rural.checked,
           }),
         });
@@ -2353,6 +2361,89 @@ function aplicarAdmin(admin) {
   if (tela) tela.classList.add("hidden");
 }
 
+function lerRedeCookie() {
+  const m = document.cookie.match(/(?:^|; )saeto_rede=([^;]+)/);
+  const valor = m ? decodeURIComponent(m[1]) : "";
+  return valor === "ESTADUAL" || valor === "MUNICIPAL" ? valor : "";
+}
+
+function gravarRedeCookie(rede) {
+  document.cookie = `saeto_rede=${rede}; path=/; max-age=43200; samesite=lax`;
+}
+
+function apagarRedeCookie() {
+  document.cookie = "saeto_rede=; path=/; max-age=0; samesite=lax";
+}
+
+function pintarNumsPortal(el, r) {
+  if (!el) return;
+  if (!r) {
+    el.textContent = "Sem números.";
+    return;
+  }
+  const pct = r.vagas ? Math.round((r.ocupadas / r.vagas) * 100) : 0;
+  el.innerHTML = `
+    <span><b>${r.vagas}</b> vagas · ${r.ocupadas} ocupadas (${pct}%)</span>
+    <span><b>${r.escolas}</b> escolas em <b>${r.municipios}</b> municípios</span>
+    <span>${r.ainda_campo} ainda no campo · ${r.finalizadas} já aplicadas</span>
+  `;
+}
+
+async function carregarPortal() {
+  const municipal = $("#nums-municipal");
+  const estadual = $("#nums-estadual");
+  if (municipal) municipal.textContent = "Lendo…";
+  if (estadual) estadual.textContent = "Lendo…";
+  try {
+    const dados = await api("/api/portais");
+    pintarNumsPortal(municipal, dados.municipal);
+    pintarNumsPortal(estadual, dados.estadual);
+  } catch (err) {
+    const msg = err.message || "Não deu para ler os números.";
+    if (municipal) municipal.textContent = msg;
+    if (estadual) estadual.textContent = msg;
+  }
+}
+
+function mostrarPortal() {
+  apagarRedeCookie();
+  const tela = $("#tela-rede");
+  if (tela) tela.classList.remove("hidden");
+  carregarPortal();
+}
+
+function esconderPortal() {
+  $("#tela-rede")?.classList.add("hidden");
+}
+
+function entrarRede(rede) {
+  state.redeAtiva = rede;
+  state.filtroRede = rede;
+  gravarRedeCookie(rede);
+  _munCache = { em: 0, dados: null };
+  state.municipioId = null;
+  state.filtroEscola = 0;
+  state.campoMun = "";
+  state.campoData = "";
+  state.provaMun = "";
+  state.provaData = "";
+  state.diariaMun = "";
+  const marca = $("#marca-rede");
+  if (marca) marca.textContent = rede === "ESTADUAL" ? "Rede estadual" : "Rede municipal";
+  esconderPortal();
+  mostrarView("resumo");
+}
+
+async function sairAdmin() {
+  try {
+    await api("/api/admin/sair", { method: "POST", body: "{}" });
+  } catch (_) {}
+  apagarRedeCookie();
+  if ($("#nome-logado")) $("#nome-logado").textContent = "";
+  esconderPortal();
+  mostrarTelaLoginAdmin();
+}
+
 const formAdmin = $("#form-admin-login");
 if (formAdmin) {
   formAdmin.addEventListener("submit", async (ev) => {
@@ -2369,7 +2460,7 @@ if (formAdmin) {
       });
       $("#admin-senha").value = "";
       aplicarAdmin(dados.admin);
-      mostrarView("resumo");
+      mostrarPortal();
     } catch (e) {
       erro.textContent = e.message;
       erro.classList.remove("hidden");
@@ -2377,22 +2468,19 @@ if (formAdmin) {
   });
 }
 
-const btnSairAdmin = $("#btn-sair-admin");
-if (btnSairAdmin) {
-  btnSairAdmin.addEventListener("click", async () => {
-    try {
-      await api("/api/admin/sair", { method: "POST", body: "{}" });
-    } catch (_) {}
-    if ($("#nome-logado")) $("#nome-logado").textContent = "";
-    mostrarTelaLoginAdmin();
-  });
-}
+$("#btn-sair-admin")?.addEventListener("click", sairAdmin);
+$("#btn-sair-portal")?.addEventListener("click", sairAdmin);
+$("#btn-trocar-rede")?.addEventListener("click", mostrarPortal);
+$("#btn-rede-municipal")?.addEventListener("click", () => entrarRede("MUNICIPAL"));
+$("#btn-rede-estadual")?.addEventListener("click", () => entrarRede("ESTADUAL"));
 
 (async function bootstrapAdmin() {
   try {
     const dados = await api("/api/admin/eu");
     aplicarAdmin(dados.admin);
-    mostrarView("resumo");
+    const rede = lerRedeCookie();
+    if (rede) entrarRede(rede);
+    else mostrarPortal();
   } catch (_) {
     mostrarTelaLoginAdmin();
   }

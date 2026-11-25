@@ -80,7 +80,7 @@ from .relatorio import (
 from .especiais import criar_aluno_na_vaga
 from .db import get_db, init_db, row_to_dict, rows_to_dicts
 from .importar import completar_planilha, importar_planilha, salvar_planilha_atual
-from .regras import dias_do_municipio, fmt_data
+from .regras import definir_rede, dias_do_municipio, fmt_data, rede_atual, reset_rede
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -255,26 +255,37 @@ def _cookie_https(request: Request) -> bool:
     return request.url.scheme == "https" or bool(os.getenv("RENDER"))
 
 
+def _rede_pedido(request: Request) -> str:
+    bruto = (request.query_params.get("rede") or "").strip().upper()
+    if bruto not in {"MUNICIPAL", "ESTADUAL"}:
+        bruto = (request.cookies.get("saeto_rede") or "").strip().upper()
+    return bruto if bruto in {"MUNICIPAL", "ESTADUAL"} else "MUNICIPAL"
+
+
 @app.middleware("http")
 async def proteger_admin(request: Request, call_next):
+    token = definir_rede(_rede_pedido(request))
     path = request.url.path
-    if (
-        path.startswith("/static")
-        or path.startswith("/acesso")
-        or path.startswith("/api/acesso")
-        or path == "/api/admin/entrar"
-        or path == "/api/admin/sair"
-    ):
-        response = await call_next(request)
-        if path.startswith("/static"):
-            response.headers["Cache-Control"] = "public, max-age=604800, immutable"
-        return response
-    if path.startswith("/api/"):
-        try:
-            admin_do_token(request.cookies.get(COOKIE_ADMIN))
-        except LookupError as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=401)
-    return await call_next(request)
+    try:
+        if (
+            path.startswith("/static")
+            or path.startswith("/acesso")
+            or path.startswith("/api/acesso")
+            or path == "/api/admin/entrar"
+            or path == "/api/admin/sair"
+        ):
+            response = await call_next(request)
+            if path.startswith("/static"):
+                response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+            return response
+        if path.startswith("/api/"):
+            try:
+                admin_do_token(request.cookies.get(COOKIE_ADMIN))
+            except LookupError as exc:
+                return JSONResponse({"detail": str(exc)}, status_code=401)
+        return await call_next(request)
+    finally:
+        reset_rede(token)
 
 
 @app.get("/")
@@ -422,33 +433,52 @@ def api_opcoes():
     return opcoes()
 
 
+def _totais_rede(conn, rede: str) -> dict:
+    tot = conn.execute(
+        """SELECT
+             (SELECT COUNT(DISTINCT e.municipio_id)
+                FROM escolas e JOIN vagas v ON v.escola_id = e.id
+                WHERE e.rede = ?) AS municipios,
+             (SELECT COUNT(*) FROM escolas WHERE rede = ?) AS escolas,
+             COUNT(*) AS vagas,
+             COALESCE(SUM(CASE WHEN v.aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
+             COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
+             COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
+           FROM vagas v
+           JOIN escolas e ON e.id = v.escola_id
+           WHERE e.rede = ?""",
+        (rede, rede, rede),
+    ).fetchone()
+    ocupadas = int(tot["ocupadas"] or 0)
+    finalizadas = int(tot["finalizadas"] or 0)
+    return {
+        "rede": rede,
+        "municipios": int(tot["municipios"] or 0),
+        "escolas": int(tot["escolas"] or 0),
+        "vagas": int(tot["vagas"] or 0),
+        "ocupadas": ocupadas,
+        "livres": int(tot["livres"] or 0),
+        "finalizadas": finalizadas,
+        "ainda_campo": max(0, ocupadas - finalizadas),
+        "choques": contar_choques(conn, rede),
+    }
+
+
+@app.get("/api/portais")
+def portais():
+    with get_db() as conn:
+        return {
+            "municipal": _totais_rede(conn, "MUNICIPAL"),
+            "estadual": _totais_rede(conn, "ESTADUAL"),
+        }
+
+
 @app.get("/api/resumo")
 def resumo():
+    rede = rede_atual()
     with get_db() as conn:
-        tot = conn.execute(
-            """SELECT
-                 (SELECT COUNT(DISTINCT e.municipio_id)
-                    FROM escolas e JOIN vagas v ON v.escola_id = e.id
-                    WHERE e.rede = 'MUNICIPAL') AS municipios,
-                 (SELECT COUNT(*) FROM escolas WHERE rede = 'MUNICIPAL') AS escolas,
-                 (SELECT COUNT(*) FROM aplicadores) AS aplicadores,
-                 COUNT(*) AS vagas,
-                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS ocupadas,
-                 COALESCE(SUM(CASE WHEN v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
-                 COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
-               FROM vagas v
-               JOIN escolas e ON e.id = v.escola_id
-               WHERE e.rede = 'MUNICIPAL'"""
-        ).fetchone()
-        por_rede = {
-            r["rede"]: r["n"]
-            for r in conn.execute(
-                """SELECT e.rede, COUNT(*) n FROM vagas v
-                   JOIN escolas e ON e.id = v.escola_id
-                   WHERE e.rede = 'MUNICIPAL'
-                   GROUP BY e.rede"""
-            )
-        }
+        base = _totais_rede(conn, rede)
+        aplicadores = conn.execute("SELECT COUNT(*) AS n FROM aplicadores").fetchone()["n"]
         por_mun = rows_to_dicts(
             conn.execute(
                 """SELECT m.id, m.nome,
@@ -456,22 +486,17 @@ def resumo():
                           COALESCE(SUM(CASE WHEN v.id IS NOT NULL AND v.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres,
                           COALESCE(SUM(CASE WHEN v.status = 'FINALIZADA' THEN 1 ELSE 0 END), 0) AS finalizadas
                    FROM municipios m
-                   JOIN escolas e ON e.municipio_id = m.id AND e.rede = 'MUNICIPAL'
+                   JOIN escolas e ON e.municipio_id = m.id AND e.rede = ?
                    JOIN vagas v ON v.escola_id = e.id
                    GROUP BY m.id, m.nome
-                   ORDER BY m.nome"""
+                   ORDER BY m.nome""",
+                (rede,),
             )
         )
         return {
-            "municipios": tot["municipios"],
-            "escolas": tot["escolas"],
-            "aplicadores": tot["aplicadores"],
-            "vagas": tot["vagas"],
-            "ocupadas": tot["ocupadas"],
-            "livres": tot["livres"],
-            "finalizadas": tot["finalizadas"],
-            "choques": contar_choques(conn),
-            "por_rede": por_rede,
+            **base,
+            "aplicadores": aplicadores,
+            "por_rede": {rede: base["vagas"]},
             "por_municipio": por_mun,
             "banco": "supabase" if usando_postgres() else "sqlite",
             "tem_nuvem": usando_nuvem(),
@@ -481,8 +506,8 @@ def resumo():
 @app.get("/api/acompanhamento")
 def acompanhamento(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = ["e.rede = 'MUNICIPAL'"]
-        params: list = []
+        filtro = ["e.rede = ?"]
+        params: list = [rede_atual()]
         if municipio_id:
             filtro.append("e.municipio_id = ?")
             params.append(municipio_id)
@@ -606,8 +631,8 @@ def acompanhamento_xlsx(
 @app.get("/api/recebimento-provas")
 def recebimento_provas(municipio_id: int | None = None, data: str | None = None):
     with get_db() as conn:
-        filtro = ["v.aplicador_id IS NOT NULL", "e.rede = 'MUNICIPAL'"]
-        params: list = []
+        filtro = ["v.aplicador_id IS NOT NULL", "e.rede = ?"]
+        params: list = [rede_atual()]
         if municipio_id:
             filtro.append("e.municipio_id = ?")
             params.append(municipio_id)
@@ -668,10 +693,11 @@ def municipios():
                           COALESCE(SUM(CASE WHEN vg.id IS NOT NULL AND vg.aplicador_id IS NULL THEN 1 ELSE 0 END), 0) AS livres
                    FROM municipios m
                    LEFT JOIN viagens v ON v.municipio_id = m.id
-                   LEFT JOIN escolas e ON e.municipio_id = m.id AND e.rede = 'MUNICIPAL'
+                   LEFT JOIN escolas e ON e.municipio_id = m.id AND e.rede = ?
                    LEFT JOIN vagas vg ON vg.escola_id = e.id
                    GROUP BY m.id, m.nome, v.data_saida, v.data_retorno, v.dias_aplicacao
-                   ORDER BY m.nome"""
+                   ORDER BY m.nome""",
+                (rede_atual(),),
             )
         )
         for row in rows:
@@ -682,11 +708,11 @@ def municipios():
 @app.get("/api/escolas")
 def escolas(municipio_id: int | None = None):
     with get_db() as conn:
-        filtro = " WHERE e.rede = 'MUNICIPAL'"
-        params: tuple = ()
+        filtro = " WHERE e.rede = ?"
+        params: list = [rede_atual()]
         if municipio_id:
             filtro += " AND e.municipio_id = ?"
-            params = (municipio_id,)
+            params.append(municipio_id)
         return rows_to_dicts(
             conn.execute(
                 f"""SELECT e.*, m.nome AS municipio,
@@ -735,8 +761,9 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                    FROM vagas v
                    JOIN escolas e ON e.id = v.escola_id
                    JOIN municipios m ON m.id = e.municipio_id
-                   WHERE v.aplicador_id IS NOT NULL AND e.rede = 'MUNICIPAL'
-                   ORDER BY v.data, v.turno, e.nome"""
+                   WHERE v.aplicador_id IS NOT NULL AND e.rede = ?
+                   ORDER BY v.data, v.turno, e.nome""",
+                (rede_atual(),),
             )
         ):
             por_apl.setdefault(r["aplicador_id"], []).append(r)
@@ -749,8 +776,9 @@ def aplicadores(lista: bool = False, tipo: str | None = None):
                        JOIN vagas v ON v.id = x.vaga_id
                        JOIN escolas e ON e.id = v.escola_id
                        JOIN municipios m ON m.id = e.municipio_id
-                       WHERE e.rede = 'MUNICIPAL'
-                       ORDER BY v.data, v.turno, e.nome"""
+                       WHERE e.rede = ?
+                       ORDER BY v.data, v.turno, e.nome""",
+                    (rede_atual(),),
                 )
             ):
                 por_extra.setdefault(r["aplicador_id"], []).append(r)
@@ -1073,8 +1101,8 @@ def quadro(municipio_id: int | None = None):
             if not mun:
                 raise HTTPException(404, "Município não encontrado.")
             vagas = conn.execute(
-                _SQL_VAGAS_QUADRO + " WHERE e.rede = 'MUNICIPAL' AND e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
-                (municipio_id,),
+                _SQL_VAGAS_QUADRO + " WHERE e.rede = ? AND e.municipio_id = ? ORDER BY e.nome, v.turno, v.data, v.serie",
+                (rede_atual(), municipio_id),
             ).fetchall()
             datas_vagas = {r["data"] for r in vagas if r["data"]}
             agenda = _agenda_ocupadas(conn, datas_vagas or None)
@@ -1088,7 +1116,8 @@ def quadro(municipio_id: int | None = None):
                ORDER BY m.nome"""
         ).fetchall()
         vagas = conn.execute(
-            _SQL_VAGAS_QUADRO + " WHERE e.rede = 'MUNICIPAL' ORDER BY e.municipio_id, e.nome, v.turno, v.data, v.serie"
+            _SQL_VAGAS_QUADRO + " WHERE e.rede = ? ORDER BY e.municipio_id, e.nome, v.turno, v.data, v.serie",
+            (rede_atual(),),
         ).fetchall()
         datas_vagas = {r["data"] for r in vagas if r["data"]}
         agenda = _agenda_ocupadas(conn, datas_vagas or None)
