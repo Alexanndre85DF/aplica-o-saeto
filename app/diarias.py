@@ -8,7 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from .cadastro import _eh_placeholder, chave_municipio
-from .regras import periodo_dias, rede_atual
+from .regras import REDE_ESTADUAL, normalizar_dias, periodo_dias, rede_atual
 
 VALOR_PADRAO = Decimal("189")
 SEDE = "GURUPI"
@@ -110,7 +110,7 @@ def _ajustes(conn) -> dict[tuple[int, int], dict]:
 
 def _viagens(conn) -> dict[int, dict]:
     rows = conn.execute(
-        "SELECT municipio_id, data_saida, data_retorno FROM viagens"
+        "SELECT municipio_id, data_saida, data_retorno, dias_aplicacao, dias_estadual FROM viagens"
     ).fetchall()
     return {int(r["municipio_id"]): dict(r) for r in rows}
 
@@ -142,16 +142,25 @@ def _ocupacoes(conn) -> list[dict]:
     return [dict(r) for r in list(titulares) + list(extras)]
 
 
+def _periodo_das_datas(datas: list[str]) -> tuple[str | None, str | None]:
+    validas = sorted({d[:10] for d in datas if d})
+    if not validas:
+        return None, None
+    return validas[0], validas[-1]
+
+
 def _periodo_municipio(viagem: dict | None, datas: list[str]) -> tuple[str | None, str | None]:
+    if rede_atual() == REDE_ESTADUAL:
+        dias = normalizar_dias((viagem or {}).get("dias_estadual"))
+        if dias:
+            return dias[0], dias[-1]
+        return _periodo_das_datas(datas)
     if viagem:
         saida = viagem.get("data_saida")
         retorno = viagem.get("data_retorno") or saida
         if saida:
             return saida[:10], (retorno or saida)[:10]
-    validas = sorted({d[:10] for d in datas if d})
-    if not validas:
-        return None, None
-    return validas[0], validas[-1]
+    return _periodo_das_datas(datas)
 
 
 def _qtd_sugerida(saida: str | None, retorno: str | None) -> Decimal:
